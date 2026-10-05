@@ -71,6 +71,19 @@ class BrefSpansTest extends TestCase
         $this->assertSame([], $this->childSpans($transaction));
     }
 
+    public function testInvalidLinesAreSkipped(): void
+    {
+        file_put_contents(self::SPANS_FILE, 'not JSON' . PHP_EOL);
+        BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
+
+        $transaction = $this->createTransaction();
+        BrefSpans::loadBrefSpans($transaction);
+
+        $spans = $this->childSpans($transaction);
+        $this->assertCount(1, $spans);
+        $this->assertSame('lambda.cold-start', $spans[0]->getOp());
+    }
+
     private function createTransaction(): Transaction
     {
         $transaction = new Transaction(new TransactionContext);
