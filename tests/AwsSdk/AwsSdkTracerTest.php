@@ -33,14 +33,16 @@ class AwsSdkTracerTest extends TestCase
 
         $spans = $this->childSpans($transaction);
         $this->assertCount(1, $spans);
-        $this->assertSame('aws.sdk.sqs', $spans[0]->getOp());
-        $this->assertSame('SqsClient ListQueues', $spans[0]->getDescription());
+        $this->assertSame('http.client', $spans[0]->getOp());
+        $this->assertSame('auto.http.aws_sdk', $spans[0]->getOrigin());
+        $this->assertSame('SQS.ListQueues', $spans[0]->getDescription());
         $this->assertSame([
-            'aws.sdk.client' => 'SqsClient',
-            'aws.sdk.command' => 'ListQueues',
-            'aws.sdk.region' => 'eu-west-1',
-            'aws.sdk.endpoint' => (string) $client->getEndpoint(),
+            'rpc.system.name' => 'aws-api',
+            'rpc.service' => 'SQS',
+            'rpc.method' => 'ListQueues',
+            'cloud.region' => 'eu-west-1',
         ], $spans[0]->getData());
+        $this->assertEquals(SpanStatus::ok(), $spans[0]->getStatus());
         $this->assertNotNull($spans[0]->getEndTimestamp());
         // The current span is restored after the call
         $this->assertSame($transaction, $hub->getSpan());

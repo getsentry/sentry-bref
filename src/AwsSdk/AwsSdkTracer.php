@@ -29,19 +29,18 @@ abstract class AwsSdkTracer
 
                 // Check if we have a parent span (this is the case if we started a transaction earlier)
                 if ($parent !== null) {
+                    // e.g. `SQS`, `DynamoDB`, `S3`
+                    $serviceId = $awsClient->getApi()->getServiceId();
                     $context = new SpanContext;
-                    $clientClassName = $awsClient::class;
-                    // Remove the namespace
-                    $clientClassName = substr($clientClassName, strrpos($clientClassName, '\\') + 1);
-                    // Remove the "Client" suffix
-                    $clientName = substr($clientClassName, 0, -6);
-                    $context->setOp('aws.sdk.' . strtolower($clientName));
-                    $context->setDescription($clientClassName . ' ' . $command->getName());
+                    $context->setOp('http.client');
+                    $context->setOrigin('auto.http.aws_sdk');
+                    $context->setDescription($serviceId . '.' . $command->getName());
+                    // See https://getsentry.github.io/sentry-conventions/attributes/
                     $context->setData([
-                        'aws.sdk.client' => $clientClassName,
-                        'aws.sdk.command' => $command->getName(),
-                        'aws.sdk.region' => $awsClient->getRegion(),
-                        'aws.sdk.endpoint' => (string) $awsClient->getEndpoint(),
+                        'rpc.system.name' => 'aws-api',
+                        'rpc.service' => $serviceId,
+                        'rpc.method' => $command->getName(),
+                        'cloud.region' => $awsClient->getRegion(),
                     ]);
                     // The span is not set as the hub's current span: with concurrent calls
                     // (`*Async()` methods, command pools), the calls would nest in each other
@@ -53,7 +52,10 @@ abstract class AwsSdkTracer
 
                 $promise->then(static function ($result) use ($span) {
                     // We only have a span if we started a span earlier
-                    $span?->finish();
+                    if ($span !== null) {
+                        $span->setStatus(SpanStatus::ok());
+                        $span->finish();
+                    }
                     return $result;
                 }, static function ($reason) use ($span): void {
                     // We only have a span if we started a span earlier
