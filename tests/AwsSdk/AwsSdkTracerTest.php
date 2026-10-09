@@ -8,9 +8,11 @@ use Aws\Result;
 use Aws\Sqs\Exception\SqsException;
 use Aws\Sqs\SqsClient;
 use GuzzleHttp\Promise\Utils;
+use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Sentry\Bref\AwsSdk\AwsSdkTracer;
+use Sentry\ClientBuilder;
 use Sentry\SentrySdk;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanStatus;
@@ -45,6 +47,9 @@ class AwsSdkTracerTest extends TestCase
             'rpc.service' => 'SQS',
             'rpc.method' => 'ListQueues',
             'cloud.region' => 'eu-west-1',
+            'http.request.method' => 'POST',
+            'server.address' => 'sqs.eu-west-1.amazonaws.com',
+            'url.domain' => 'sqs.eu-west-1.amazonaws.com',
             'http.response.status_code' => 200,
             'aws.request_id' => 'f5c1b5c0-request-id',
         ], $spans[0]->getData());
@@ -109,6 +114,24 @@ class AwsSdkTracerTest extends TestCase
         $this->assertNotEquals(SpanStatus::ok(), $spans[0]->getStatus());
     }
 
+    public function testRecordsTheFullUrlWhenDataCollectionAllowsIt(): void
+    {
+        $hub = SentrySdk::init();
+        // Any `data_collection` value opts into the SDK's data collection rules
+        $hub->bindClient(ClientBuilder::create(['data_collection' => []])->getClient());
+        $transaction = new Transaction(new TransactionContext);
+        $transaction->initSpanRecorder();
+        $hub->setSpan($transaction);
+
+        $client = $this->createSqsClient(fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
+        AwsSdkTracer::trace($client);
+        $client->listQueues();
+
+        $spans = $this->childSpans($transaction);
+        $this->assertCount(1, $spans);
+        $this->assertSame('https://sqs.eu-west-1.amazonaws.com/', $spans[0]->getData()['url.full']);
+    }
+
     public function testRecordsTheResponseOfFailedCalls(): void
     {
         $hub = SentrySdk::init();
@@ -117,6 +140,7 @@ class AwsSdkTracerTest extends TestCase
         $hub->setSpan($transaction);
 
         $client = $this->createSqsClient(fn (CommandInterface $command) => new SqsException('Access denied', $command, [
+            'request' => new Request('POST', 'https://sqs.eu-west-1.amazonaws.com/'),
             'response' => new Response(403, ['x-amz-id-2' => 'extended-request-id']),
             'request_id' => 'f5c1b5c0-request-id',
         ]));
@@ -129,6 +153,7 @@ class AwsSdkTracerTest extends TestCase
         $spans = $this->childSpans($transaction);
         $this->assertCount(1, $spans);
         $this->assertEquals(SpanStatus::permissionDenied(), $spans[0]->getStatus());
+        $this->assertSame('sqs.eu-west-1.amazonaws.com', $spans[0]->getData()['server.address']);
         $this->assertSame(403, $spans[0]->getData()['http.response.status_code']);
         $this->assertSame('f5c1b5c0-request-id', $spans[0]->getData()['aws.request_id']);
         $this->assertSame('extended-request-id', $spans[0]->getData()['aws.extended_request_id']);

@@ -8,6 +8,10 @@ use Aws\Exception\AwsException;
 use Aws\ResultInterface;
 use GuzzleHttp\Promise\PromiseInterface;
 use Psr\Http\Message\RequestInterface; // phpcs:ignore
+use Psr\Http\Message\UriInterface;
+use Sentry\DataCollection\DataCollectionPolicy;
+use Sentry\DataCollection\HttpMessageType;
+use Sentry\DataCollection\HttpUrlCollector;
 use Sentry\SentrySdk;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanContext;
@@ -43,6 +47,8 @@ abstract class AwsSdkTracer
                         'rpc.service' => $serviceId,
                         'rpc.method' => $command->getName(),
                         'cloud.region' => $awsClient->getRegion(),
+                        // From the API definition: the request is not built yet at this step
+                        'http.request.method' => $awsClient->getApi()->getOperation($command->getName())->getHttp()['method'] ?? null,
                     ]);
                     // The span is not set as the hub's current span: with concurrent calls
                     // (`*Async()` methods, command pools), the calls would nest in each other
@@ -62,6 +68,7 @@ abstract class AwsSdkTracer
                         $headers = $metadata['headers'] ?? [];
                         self::recordResponse(
                             $span,
+                            $metadata['effectiveUri'] ?? null,
                             $metadata['statusCode'] ?? null,
                             // `x-amz-request-id` is used by S3
                             $headers['x-amzn-requestid'] ?? $headers['x-amz-request-id'] ?? null,
@@ -80,6 +87,7 @@ abstract class AwsSdkTracer
                             $statusCode = $reason->getStatusCode();
                             self::recordResponse(
                                 $span,
+                                $reason->getRequest()?->getUri(),
                                 $statusCode,
                                 $reason->getAwsRequestId(),
                                 $reason->getResponse()?->getHeaderLine('x-amz-id-2') ?: null,
@@ -98,13 +106,30 @@ abstract class AwsSdkTracer
     }
 
     /**
-     * The request IDs are what AWS support asks for when investigating a call.
+     * The URL is the one actually called, after the SDK resolved the endpoint (e.g. S3 buckets
+     * as subdomains). The request IDs are what AWS support asks for when investigating a call.
      *
-     * @see https://getsentry.github.io/sentry-conventions/attributes/aws/
+     * @see https://getsentry.github.io/sentry-conventions/attributes/
      */
-    private static function recordResponse(Span $span, ?int $statusCode, ?string $requestId, ?string $extendedRequestId): void
-    {
+    private static function recordResponse(
+        Span $span,
+        UriInterface|string|null $uri,
+        ?int $statusCode,
+        ?string $requestId,
+        ?string $extendedRequestId,
+    ): void {
+        $host = $uri !== null ? parse_url((string) $uri, PHP_URL_HOST) : null;
+        // Like the HTTP integrations of the Sentry SDK, the full URL is only collected
+        // when the SDK's `data_collection` option allows it
+        $fullUrl = $uri !== null
+            ? HttpUrlCollector::collect(DataCollectionPolicy::fromHub(SentrySdk::getCurrentHub()), HttpMessageType::outgoingRequest(), $uri)
+            : null;
+
         $span->setData(array_filter([
+            'server.address' => is_string($host) ? $host : null,
+            // Sentry builds the span name from it, e.g. `POST sqs.eu-west-3.amazonaws.com`
+            'url.domain' => is_string($host) ? $host : null,
+            'url.full' => $fullUrl,
             'http.response.status_code' => $statusCode,
             'aws.request_id' => $requestId,
             // Only set by S3
