@@ -5,6 +5,10 @@ namespace Sentry\Bref\Test\Bref;
 use Bref\Context\Context;
 use Bref\Event\Handler;
 use Bref\FpmRuntime\FpmHandler;
+use Bref\LaravelBridge\Http\OctaneHandler;
+use Bref\LaravelBridge\Queue\QueueHandler;
+use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
 use Bref\Logger\StderrLogger;
 use Bref\Runtime\ColdStartTracker;
 use PHPUnit\Framework\TestCase;
@@ -55,6 +59,7 @@ class BrefSubscriberTest extends TestCase
 
     protected function tearDown(): void
     {
+        Container::setInstance(null);
         $_SERVER = $this->server;
         $this->deleteFiles();
         SentrySdk::init();
@@ -197,6 +202,51 @@ class BrefSubscriberTest extends TestCase
             $transactions[0]->getContexts()['trace']['trace_id'],
             $transactions[1]->getContexts()['trace']['trace_id'],
         );
+    }
+
+    public function testLetsSentryLaravelTraceQueueJobs(): void
+    {
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createMock(QueueHandler::class);
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        \Sentry\captureMessage('Logged by a job');
+        $subscriber->afterInvoke($handler, [], Context::fake(), null);
+
+        // sentry-laravel creates one transaction per job, named after the job class
+        $this->assertSame([], $this->transport->transactions());
+        // Events still get the Lambda contexts
+        $this->assertSame('fake-aws-request-id', $this->transport->errors()[0]->getContexts()['aws.lambda']['aws_request_id']);
+    }
+
+    public function testTracesQueueJobsWhenSentryLaravelDoesNot(): void
+    {
+        Container::setInstance($container = new Container);
+        $container->instance('config', new Repository(['sentry' => ['tracing' => ['queue_job_transactions' => false]]]));
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createMock(QueueHandler::class);
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        $subscriber->afterInvoke($handler, [], Context::fake(), null);
+
+        $this->assertSame('my-function', $this->singleTransaction()->getTransaction());
+    }
+
+    public function testLetsSentryLaravelTraceOctaneRequests(): void
+    {
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createMock(OctaneHandler::class);
+
+        $subscriber->beforeInvoke($handler, $this->createHttpEvent(), Context::fake());
+        $subscriber->afterInvoke($handler, $this->createHttpEvent(), Context::fake(), null, new RuntimeException('Bref error'));
+
+        // sentry-laravel creates the transaction, named after the route
+        $this->assertSame([], $this->transport->transactions());
+        // Errors outside of Laravel are still captured
+        $errors = $this->transport->errors();
+        $this->assertCount(1, $errors);
+        $this->assertSame('Bref error', $errors[0]->getExceptions()[0]->getValue());
+        $this->assertSame('fake-aws-request-id', $errors[0]->getContexts()['aws.lambda']['aws_request_id']);
     }
 
     public function testLeavesFpmInvocationsToTheFramework(): void

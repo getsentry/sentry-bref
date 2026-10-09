@@ -6,6 +6,9 @@ use Bref\Context\Context;
 use Bref\Event\Handler;
 use Bref\Event\Http\HttpRequestEvent;
 use Bref\FpmRuntime\FpmHandler;
+use Bref\LaravelBridge\Http\OctaneHandler;
+use Bref\LaravelBridge\Queue\QueueHandler;
+use Illuminate\Container\Container;
 use Bref\Listener\BrefEventSubscriber;
 use Bref\Runtime\ColdStartTracker;
 use Sentry\Bref\BrefSpans;
@@ -112,6 +115,14 @@ class BrefSubscriber extends BrefEventSubscriber
                 return;
             }
 
+            $this->setLambdaContexts($context);
+
+            // The framework's Sentry SDK creates a better transaction: named after the job or the
+            // route, and continuing the trace of the code that dispatched the job or sent the request
+            if ($this->frameworkCreatesTheTransaction($handler)) {
+                return;
+            }
+
             $this->currentInvokeSpan = $this->startTransaction($handler, $context);
         } catch (Throwable $e) {
             InternalErrors::log($e);
@@ -140,17 +151,16 @@ class BrefSubscriber extends BrefEventSubscriber
                 return;
             }
 
-            // `beforeInvoke()` failed: there is no transaction to finish
+            if ($error !== null) {
+                captureException($error);
+            }
+
+            // No transaction to finish: the framework created it, or `beforeInvoke()` failed
             if ($this->currentInvokeSpan === null) {
                 return;
             }
 
-            if ($error !== null) {
-                captureException($error);
-                $this->currentInvokeSpan->setStatus(SpanStatus::internalError());
-            } else {
-                $this->currentInvokeSpan->setStatus(SpanStatus::ok());
-            }
+            $this->currentInvokeSpan->setStatus($error !== null ? SpanStatus::internalError() : SpanStatus::ok());
 
             $this->stopTransaction($this->currentInvokeSpan);
             $this->currentInvokeSpan = null;
@@ -201,9 +211,43 @@ class BrefSubscriber extends BrefEventSubscriber
         $hub = SentrySdk::getCurrentHub();
         $hub->setSpan($transaction);
 
+        $spanContext = new SpanContext;
+        $spanContext->setOp(is_object($handler) ? $handler::class : 'handler');
+        $handleSpan = $transaction->startChild($spanContext);
+        $hub->setSpan($handleSpan);
+
+        // TODO look at distributed traces
+
+        return $handleSpan;
+    }
+
+    /**
+     * Laravel queues and Octane, when the Sentry SDK for Laravel is installed.
+     */
+    private function frameworkCreatesTheTransaction(callable|Handler|RequestHandlerInterface $handler): bool
+    {
+        if (! class_exists(\Sentry\Laravel\Integration::class)) {
+            return false;
+        }
+
+        if ($handler instanceof QueueHandler) {
+            // Jobs can be configured to not be traced as transactions
+            $container = Container::getInstance();
+            return ! $container->bound('config') || (bool) $container->make('config')->get('sentry.tracing.queue_job_transactions', true);
+        }
+
+        return $handler instanceof OctaneHandler;
+    }
+
+    private function setLambdaContexts(Context $context): void
+    {
+        $functionName = $_SERVER['AWS_LAMBDA_FUNCTION_NAME'] ?? '';
+        $functionVersion = $_SERVER['AWS_LAMBDA_FUNCTION_VERSION'] ?? '';
+        $logStreamName = $_SERVER['AWS_LAMBDA_LOG_STREAM_NAME'] ?? '';
+
         // Inspired by the Node implementation for Lambda
         // See https://github.com/getsentry/sentry-javascript/blob/da7c95939f9dc36abcf6c4cabd08ad4fdbb7d920/packages/serverless/src/awslambda.ts#L225
-        $hub->configureScope(static function (Scope $scope) use ($functionVersion, $logStreamName, $functionName, $context): void {
+        SentrySdk::getCurrentHub()->configureScope(static function (Scope $scope) use ($functionVersion, $logStreamName, $functionName, $context): void {
             $scope->setContext('aws.lambda', [
                 'aws_request_id' => $context->getAwsRequestId(),
                 'function_name' => $functionName,
@@ -219,15 +263,6 @@ class BrefSubscriber extends BrefEventSubscriber
                 'url' => 'https://console.aws.amazon.com/cloudwatch/home?region=' . ($_SERVER['AWS_REGION'] ?? '') . '#logsV2:log-groups/log-group/' . urlencode($logGroupName) . '/log-events/' . urlencode($logStreamName) . '?filterPattern="' . $context->getAwsRequestId() . '"',
             ]);
         });
-
-        $spanContext = new SpanContext;
-        $spanContext->setOp(is_object($handler) ? $handler::class : 'handler');
-        $handleSpan = $transaction->startChild($spanContext);
-        $hub->setSpan($handleSpan);
-
-        // TODO look at distributed traces
-
-        return $handleSpan;
     }
 
     protected function stopTransaction(Span $handleSpan): void
