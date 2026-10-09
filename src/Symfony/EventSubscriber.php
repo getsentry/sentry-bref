@@ -19,10 +19,7 @@ class EventSubscriber implements EventSubscriberInterface
 
     public function onKernelRequest(RequestEvent $event): void
     {
-        // To support Symfony 4
-        // @phpstan-ignore-next-line
-        $isMainRequest = method_exists($event, 'isMainRequest') ? $event->isMainRequest() : $event->isMasterRequest();
-        if (! $isMainRequest) {
+        if (! $event->isMainRequest()) {
             // don't do anything if it's not the main request
             return;
         }
