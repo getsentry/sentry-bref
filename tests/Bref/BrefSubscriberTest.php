@@ -83,6 +83,7 @@ class BrefSubscriberTest extends TestCase
         $traceContext = $transaction->getContexts()['trace'];
         $this->assertSame('function.aws', $traceContext['op']);
         $this->assertSame('auto.function.aws_lambda', $traceContext['origin']);
+        $this->assertSame('ok', $traceContext['status']);
         $this->assertSame([
             'faas.invocation_id' => 'request-id',
             'faas.name' => 'my-function',
@@ -145,6 +146,7 @@ class BrefSubscriberTest extends TestCase
         // The error is linked to the invocation's trace
         $transaction = $this->singleTransaction();
         $this->assertSame($transaction->getContexts()['trace']['trace_id'], $errors[0]->getContexts()['trace']['trace_id']);
+        $this->assertSame('internal_error', $transaction->getContexts()['trace']['status']);
         $this->assertEquals(SpanStatus::internalError(), $transaction->getSpans()[0]->getStatus());
     }
 

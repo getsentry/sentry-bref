@@ -162,7 +162,10 @@ class BrefSubscriber extends BrefEventSubscriber
                 return;
             }
 
-            $this->currentInvokeSpan->setStatus($error !== null ? SpanStatus::internalError() : SpanStatus::ok());
+            $status = $error !== null ? SpanStatus::internalError() : SpanStatus::ok();
+            $this->currentInvokeSpan->setStatus($status);
+            // The transaction too: that is where Sentry looks for failed invocations
+            SentrySdk::getCurrentHub()->getTransaction()?->setStatus($status);
 
             $this->stopTransaction($this->currentInvokeSpan);
             $this->currentInvokeSpan = null;
