@@ -84,6 +84,23 @@ class BrefSpansTest extends TestCase
         $this->assertSame('lambda.cold-start', $spans[0]->getOp());
     }
 
+    public function testNeverBreaksTheRequest(): void
+    {
+        BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
+        // e.g. a file created by another user (can happen when running in Docker)
+        chmod(self::SPANS_FILE, 0000);
+        $previousErrorLog = ini_set('error_log', '/dev/null');
+
+        try {
+            BrefSpans::loadBrefSpans($this->createTransaction());
+        } finally {
+            ini_set('error_log', (string) $previousErrorLog);
+            chmod(self::SPANS_FILE, 0666);
+        }
+
+        $this->addToAssertionCount(1);
+    }
+
     private function createTransaction(): Transaction
     {
         $transaction = new Transaction(new TransactionContext);

@@ -6,6 +6,7 @@ use Bref\Logger\StderrLogger;
 use JsonException;
 use Sentry\Tracing\SpanContext;
 use Sentry\Tracing\Transaction;
+use Throwable;
 
 /**
  * @internal
@@ -30,38 +31,43 @@ class BrefSpans
 
     public static function loadBrefSpans(Transaction $transaction): void
     {
-        if (! file_exists(self::SPANS_FILE)) {
-            return;
-        }
-
-        foreach (file(self::SPANS_FILE) as $line) {
-            try {
-                $span = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
-            } catch (JsonException) {
-                $logger = new StderrLogger;
-                $logger->warning('Internal Bref error: failed to decode JSON from the Sentry cold start tracking: ' . $line);
-
-                // ignore
-                continue;
+        // Called by the framework middlewares on every request: it must never break the request
+        try {
+            if (! file_exists(self::SPANS_FILE)) {
+                return;
             }
 
-            $spanContext = new SpanContext;
-            $spanContext->setOp($span['id']);
-            $spanContext->setDescription($span['description']);
-            $spanContext->setStartTimestamp($span['start']);
-            $spanContext->setEndTimestamp($span['end']);
+            foreach (file(self::SPANS_FILE) as $line) {
+                try {
+                    $span = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
+                } catch (JsonException) {
+                    $logger = new StderrLogger;
+                    $logger->warning('Internal Bref error: failed to decode JSON from the Sentry cold start tracking: ' . $line);
 
-            $transaction->startChild($spanContext);
+                    // ignore
+                    continue;
+                }
 
-            // Offset the start time of the transaction to the earliest span
-            $startTimestamp = $span['start'];
-            if ($startTimestamp < $transaction->getStartTimestamp()) {
-                $transaction->setStartTimestamp($startTimestamp);
+                $spanContext = new SpanContext;
+                $spanContext->setOp($span['id']);
+                $spanContext->setDescription($span['description']);
+                $spanContext->setStartTimestamp($span['start']);
+                $spanContext->setEndTimestamp($span['end']);
+
+                $transaction->startChild($spanContext);
+
+                // Offset the start time of the transaction to the earliest span
+                $startTimestamp = $span['start'];
+                if ($startTimestamp < $transaction->getStartTimestamp()) {
+                    $transaction->setStartTimestamp($startTimestamp);
+                }
             }
-        }
 
-        file_put_contents(self::SPANS_FILE, '');
-        // Make sure the file is writeable by other users (can happen when running in Docker)
-        chmod(self::SPANS_FILE, 0666);
+            file_put_contents(self::SPANS_FILE, '');
+            // Make sure the file is writeable by other users (can happen when running in Docker)
+            chmod(self::SPANS_FILE, 0666);
+        } catch (Throwable $e) {
+            InternalErrors::log($e);
+        }
     }
 }
