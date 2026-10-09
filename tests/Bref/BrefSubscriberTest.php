@@ -60,7 +60,9 @@ class BrefSubscriberTest extends TestCase
 
     protected function tearDown(): void
     {
-        Container::setInstance(null);
+        if (class_exists(Container::class)) {
+            Container::setInstance(null);
+        }
         $_SERVER = $this->server;
         $this->deleteFiles();
         SentrySdk::init();
@@ -226,6 +228,9 @@ class BrefSubscriberTest extends TestCase
         );
     }
 
+    /**
+     * @group laravel
+     */
     public function testLetsSentryLaravelTraceQueueJobs(): void
     {
         $subscriber = $this->createWarmSubscriber();
@@ -241,6 +246,9 @@ class BrefSubscriberTest extends TestCase
         $this->assertSame('fake-aws-request-id', $this->transport->errors()[0]->getContexts()['aws.lambda']['aws_request_id']);
     }
 
+    /**
+     * @group laravel
+     */
     public function testTracesQueueJobsWhenSentryLaravelDoesNot(): void
     {
         Container::setInstance($container = new Container);
@@ -254,6 +262,9 @@ class BrefSubscriberTest extends TestCase
         $this->assertSame('my-function', $this->singleTransaction()->getTransaction());
     }
 
+    /**
+     * @group laravel
+     */
     public function testLetsSentryLaravelTraceOctaneRequests(): void
     {
         $subscriber = $this->createWarmSubscriber();

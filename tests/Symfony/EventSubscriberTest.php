@@ -13,6 +13,9 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 
+/**
+ * @group symfony
+ */
 class EventSubscriberTest extends TestCase
 {
     private const SPANS_FILE = '/tmp/bref-sentry-spans.json';

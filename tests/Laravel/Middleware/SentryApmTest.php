@@ -15,6 +15,9 @@ use Sentry\Tracing\TransactionContext;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * @group laravel
+ */
 class SentryApmTest extends TestCase
 {
     private const SPANS_FILE = '/tmp/bref-sentry-spans.json';

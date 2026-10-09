@@ -14,6 +14,9 @@ use Sentry\Tracing\Span;
 use Sentry\Tracing\Transaction;
 use Sentry\Tracing\TransactionContext;
 
+/**
+ * @group laravel
+ */
 class BrefSentryServiceProviderTest extends TestCase
 {
     private const SPANS_FILE = '/tmp/bref-sentry-spans.json';

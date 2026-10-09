@@ -7,6 +7,9 @@ use Sentry\Bref\Symfony\DependencyInjection\BrefSentryExtension;
 use Sentry\Bref\Symfony\EventSubscriber;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 
+/**
+ * @group symfony
+ */
 class BrefSentryExtensionTest extends TestCase
 {
     public function testRegistersTheEventSubscriber(): void

@@ -38,6 +38,46 @@ jobs:
             -   name: PHPUnit
                 run: vendor/bin/phpunit
 
+    # Laravel and Symfony are optional: the core (Bref events, AWS SDK, PSR-15) must work without them
+    tests-without-frameworks:
+        name: Tests - PHP 8.5 without frameworks
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            -   uses: actions/checkout@v4
+            -   name: Setup PHP
+                uses: shivammathur/setup-php@v2
+                with:
+                    php-version: '8.5'
+                    tools: composer:v2
+                    coverage: none
+            -   name: Install PHP dependencies without Laravel and Symfony
+                run: |
+                    composer remove --dev --no-update laravel/framework bref/laravel-bridge sentry/sentry-laravel symfony/dependency-injection symfony/event-dispatcher symfony/http-kernel
+                    composer update --prefer-dist --no-interaction --no-progress
+            -   name: PHPUnit
+                run: vendor/bin/phpunit --exclude-group laravel,symfony
+
+    # Laravel 12 requires Symfony 7.2: the lowest supported Symfony version is tested without Laravel
+    tests-symfony-lowest:
+        name: Tests - PHP 8.2 --prefer-lowest Symfony without Laravel
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            -   uses: actions/checkout@v4
+            -   name: Setup PHP
+                uses: shivammathur/setup-php@v2
+                with:
+                    php-version: '8.2'
+                    tools: composer:v2
+                    coverage: none
+            -   name: Install PHP dependencies without Laravel
+                run: |
+                    composer remove --dev --no-update laravel/framework bref/laravel-bridge sentry/sentry-laravel
+                    composer update --prefer-lowest --prefer-dist --no-interaction --no-progress
+            -   name: PHPUnit
+                run: vendor/bin/phpunit --exclude-group laravel
+
     cs:
         name: Coding standards
         runs-on: ubuntu-latest
