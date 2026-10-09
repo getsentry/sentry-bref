@@ -9,6 +9,7 @@ use Bref\FpmRuntime\FpmHandler;
 use Bref\Listener\BrefEventSubscriber;
 use Sentry\Bref\BrefSpans;
 use Sentry\Bref\ColdStartTracking;
+use Sentry\Bref\InternalErrors;
 use Sentry\Bref\Laravel\LaravelBridge;
 use Sentry\Bref\StartupTracking;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -47,47 +48,51 @@ class BrefSubscriber extends BrefEventSubscriber
 
     public function afterStartup(): void
     {
-        // Only report that span if it's a cold start
-        // On warm invocations the startup only happens when Bref's bootstrap process reboots, i.e.
-        // after the response was sent. So that span/time does not count in the transaction because
-        // it's not part of the client response time/experience.
-        if (ColdStartTracking::isColdStart()) {
-            BrefSpans::storeSpan('bref.startup', 'Bref startup', $this->startUpStart, microtime(true));
-        } else {
-            // We're reporting a new transaction as a child of the previous one
-            $context = StartupTracking::createChildTransaction();
-            if ($context && $context->getParentSampled()) {
-                $functionName = $_SERVER['AWS_LAMBDA_FUNCTION_NAME'] ?? '';
+        try {
+            // Only report that span if it's a cold start
+            // On warm invocations the startup only happens when Bref's bootstrap process reboots, i.e.
+            // after the response was sent. So that span/time does not count in the transaction because
+            // it's not part of the client response time/experience.
+            if (ColdStartTracking::isColdStart()) {
+                BrefSpans::storeSpan('bref.startup', 'Bref startup', $this->startUpStart, microtime(true));
+            } else {
+                // We're reporting a new transaction as a child of the previous one
+                $context = StartupTracking::createChildTransaction();
+                if ($context && $context->getParentSampled()) {
+                    $functionName = $_SERVER['AWS_LAMBDA_FUNCTION_NAME'] ?? '';
 
-                $context->setName('bref.startup');
-                $context->setOp('function.aws.lambda');
-                $context->setSource(TransactionSource::task());
-                $context->setStartTimestamp($this->startUpStart);
-                $context->setDescription('Bref and the entire PHP process restarted at the end of the previous invocation, this is by design. This happened outside of the previous invocation duration/HTTP response time (if it was an HTTP request), this is why it is tracked as a child Sentry transaction. Check out the Sentry trace to see the previous invocation. You can disable that behavior via BREF_LOOP_MAX: https://bref.sh/docs/environment/performances#bref-for-event-driven-functions');
-                $context->setData([
-                    'aws.lambda-name' => $functionName,
-                    'cloud.provider' => 'aws',
-                    'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
-                ]);
-                $context->setTags([
-                    'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
-                    'faas.name' => $functionName,
-                ]);
+                    $context->setName('bref.startup');
+                    $context->setOp('function.aws.lambda');
+                    $context->setSource(TransactionSource::task());
+                    $context->setStartTimestamp($this->startUpStart);
+                    $context->setDescription('Bref and the entire PHP process restarted at the end of the previous invocation, this is by design. This happened outside of the previous invocation duration/HTTP response time (if it was an HTTP request), this is why it is tracked as a child Sentry transaction. Check out the Sentry trace to see the previous invocation. You can disable that behavior via BREF_LOOP_MAX: https://bref.sh/docs/environment/performances#bref-for-event-driven-functions');
+                    $context->setData([
+                        'aws.lambda-name' => $functionName,
+                        'cloud.provider' => 'aws',
+                        'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
+                    ]);
+                    $context->setTags([
+                        'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
+                        'faas.name' => $functionName,
+                    ]);
 
-                $hub = SentrySdk::getCurrentHub();
-                $transaction = $hub->startTransaction($context);
-                $hub->setSpan($transaction);
-                $spanContext = new SpanContext;
-                $spanContext->setOp('bref.startup');
-                $spanContext->setStartTimestamp($this->startUpStart);
-                $startupSpan = $transaction->startChild($spanContext);
-                $hub->setSpan($startupSpan);
-                $startupSpan->finish();
-                $hub->setSpan($transaction);
-                $transaction->finish();
+                    $hub = SentrySdk::getCurrentHub();
+                    $transaction = $hub->startTransaction($context);
+                    $hub->setSpan($transaction);
+                    $spanContext = new SpanContext;
+                    $spanContext->setOp('bref.startup');
+                    $spanContext->setStartTimestamp($this->startUpStart);
+                    $startupSpan = $transaction->startChild($spanContext);
+                    $hub->setSpan($startupSpan);
+                    $startupSpan->finish();
+                    $hub->setSpan($transaction);
+                    $transaction->finish();
 
-                StartupTracking::clear();
+                    StartupTracking::clear();
+                }
             }
+        } catch (Throwable $e) {
+            InternalErrors::log($e);
         }
     }
 
@@ -96,18 +101,22 @@ class BrefSubscriber extends BrefEventSubscriber
         mixed $event,
         Context $context,
     ): void {
-        if (ColdStartTracking::isColdStart()) {
-            BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', ColdStartTracking::getColdStartTime(), microtime(true));
+        try {
+            if (ColdStartTracking::isColdStart()) {
+                BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', ColdStartTracking::getColdStartTime(), microtime(true));
 
-            ColdStartTracking::coldStartFinished();
+                ColdStartTracking::coldStartFinished();
+            }
+
+            // Ignore PHP-FPM handlers because the FPM worker will be responsible for reporting the transaction
+            if ($handler instanceof FpmHandler) {
+                return;
+            }
+
+            $this->currentInvokeSpan = $this->startTransaction($handler, $context);
+        } catch (Throwable $e) {
+            InternalErrors::log($e);
         }
-
-        // Ignore PHP-FPM handlers because the FPM worker will be responsible for reporting the transaction
-        if ($handler instanceof FpmHandler) {
-            return;
-        }
-
-        $this->currentInvokeSpan = $this->startTransaction($handler, $context);
     }
 
     public function afterInvoke(
@@ -117,29 +126,38 @@ class BrefSubscriber extends BrefEventSubscriber
         mixed $result,
         Throwable |null $error = null,
     ): void {
-        if ($handler instanceof FpmHandler) {
-            // If there was a Bref error (timeout, response too big, etc.), we need to report it.
-            // In case of timeouts FPM was hard stopped before the transaction was finished and
-            // anything could be reported to Sentry.
-            // In case of other errors (like response too big), the error happened outside the
-            // FPM worker so it is unknown to the framework (where Sentry is configured).
-            if ($error !== null) {
-                $this->reportError($error, $event);
+        try {
+            if ($handler instanceof FpmHandler) {
+                // If there was a Bref error (timeout, response too big, etc.), we need to report it.
+                // In case of timeouts FPM was hard stopped before the transaction was finished and
+                // anything could be reported to Sentry.
+                // In case of other errors (like response too big), the error happened outside the
+                // FPM worker so it is unknown to the framework (where Sentry is configured).
+                if ($error !== null) {
+                    $this->reportError($error, $event);
+                }
+
+                // Ignore PHP-FPM handlers because the FPM worker will be responsible for reporting the transaction
+                return;
             }
 
-            // Ignore PHP-FPM handlers because the FPM worker will be responsible for reporting the transaction
-            return;
-        }
+            // `beforeInvoke()` failed: there is no transaction to finish
+            if ($this->currentInvokeSpan === null) {
+                return;
+            }
 
-        if ($error !== null) {
-            captureException($error);
-            $this->currentInvokeSpan->setStatus(SpanStatus::internalError());
-        } else {
-            $this->currentInvokeSpan->setStatus(SpanStatus::ok());
-        }
+            if ($error !== null) {
+                captureException($error);
+                $this->currentInvokeSpan->setStatus(SpanStatus::internalError());
+            } else {
+                $this->currentInvokeSpan->setStatus(SpanStatus::ok());
+            }
 
-        $this->stopTransaction($this->currentInvokeSpan);
-        $this->currentInvokeSpan = null;
+            $this->stopTransaction($this->currentInvokeSpan);
+            $this->currentInvokeSpan = null;
+        } catch (Throwable $e) {
+            InternalErrors::log($e);
+        }
     }
 
     protected function startTransaction(

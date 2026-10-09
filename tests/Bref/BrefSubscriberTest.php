@@ -12,6 +12,7 @@ use Sentry\Bref\Test\Support\CapturingTransport;
 use Sentry\ClientBuilder;
 use Sentry\Event;
 use Sentry\SentrySdk;
+use Sentry\State\HubInterface;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanStatus;
 
@@ -189,6 +190,54 @@ class BrefSubscriberTest extends TestCase
             'method' => 'GET',
             'query_string' => 'foo=bar',
         ], $errors[0]->getRequest());
+    }
+
+    public function testAFailureDuringStartupDoesNotBreakTheRuntime(): void
+    {
+        // e.g. a file left corrupted by a previous process
+        file_put_contents('/tmp/bref-sentry-startup.txt', 'not JSON');
+        $subscriber = $this->createWarmSubscriber();
+
+        $logs = $this->captureErrorLog(function () use ($subscriber) {
+            $subscriber->beforeStartup();
+            $subscriber->afterStartup();
+        });
+
+        $this->assertStringContainsString('Sentry Bref integration error: JsonException', $logs);
+    }
+
+    public function testAFailureBeforeTheInvocationDoesNotFailTheInvocation(): void
+    {
+        $hub = $this->createMock(HubInterface::class);
+        $hub->method('startTransaction')->willThrowException(new RuntimeException('Sentry is broken'));
+        SentrySdk::setCurrentHub($hub);
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createHandler();
+
+        $logs = $this->captureErrorLog(function () use ($subscriber, $handler) {
+            $subscriber->beforeInvoke($handler, [], Context::fake());
+            $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
+        });
+
+        $this->assertStringContainsString('Sentry Bref integration error: RuntimeException: Sentry is broken', $logs);
+    }
+
+    /**
+     * Runs the callback and returns what it wrote with `error_log()`.
+     */
+    private function captureErrorLog(callable $callback): string
+    {
+        $file = tempnam(sys_get_temp_dir(), 'error-log');
+        $previous = ini_set('error_log', (string) $file);
+        try {
+            $callback();
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+        $logs = (string) file_get_contents((string) $file);
+        unlink((string) $file);
+
+        return $logs;
     }
 
     /**
