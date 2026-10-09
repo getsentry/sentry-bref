@@ -7,8 +7,8 @@ use Bref\Event\Handler;
 use Bref\Event\Http\HttpRequestEvent;
 use Bref\FpmRuntime\FpmHandler;
 use Bref\Listener\BrefEventSubscriber;
+use Bref\Runtime\ColdStartTracker;
 use Sentry\Bref\BrefSpans;
-use Sentry\Bref\ColdStartTracking;
 use Sentry\Bref\InternalErrors;
 use Sentry\Bref\Laravel\LaravelBridge;
 use Sentry\Bref\StartupTracking;
@@ -34,12 +34,8 @@ use function Sentry\startTransaction;
 class BrefSubscriber extends BrefEventSubscriber
 {
     private float|null $startUpStart = null;
+    private float|null $startUpEnd = null;
     private Span|null $currentInvokeSpan = null;
-
-    public function __construct()
-    {
-        ColdStartTracking::init();
-    }
 
     public function beforeStartup(): void
     {
@@ -49,12 +45,12 @@ class BrefSubscriber extends BrefEventSubscriber
     public function afterStartup(): void
     {
         try {
-            // Only report that span if it's a cold start
+            // On a cold start, the startup is reported with the first invocation (see `beforeInvoke()`)
             // On warm invocations the startup only happens when Bref's bootstrap process reboots, i.e.
             // after the response was sent. So that span/time does not count in the transaction because
             // it's not part of the client response time/experience.
-            if (ColdStartTracking::isColdStart()) {
-                BrefSpans::storeSpan('bref.startup', 'Bref startup', $this->startUpStart, microtime(true));
+            if (ColdStartTracker::currentInvocationIsColdStart()) {
+                $this->startUpEnd = microtime(true);
             } else {
                 // We're reporting a new transaction as a child of the previous one
                 $context = StartupTracking::createChildTransaction();
@@ -102,10 +98,13 @@ class BrefSubscriber extends BrefEventSubscriber
         Context $context,
     ): void {
         try {
-            if (ColdStartTracking::isColdStart()) {
-                BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', ColdStartTracking::getColdStartTime(), microtime(true));
-
-                ColdStartTracking::coldStartFinished();
+            // When Lambda initializes the instance proactively, i.e. before it is used, the cold start
+            // is not part of the invocation: reporting it would include the time the instance waited
+            if (ColdStartTracker::currentInvocationIsUserFacingColdStart()) {
+                BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', ColdStartTracker::getColdStartBeginningTime(), microtime(true));
+                if ($this->startUpStart !== null && $this->startUpEnd !== null) {
+                    BrefSpans::storeSpan('bref.startup', 'Bref startup', $this->startUpStart, $this->startUpEnd);
+                }
             }
 
             // Ignore PHP-FPM handlers because the FPM worker will be responsible for reporting the transaction

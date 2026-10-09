@@ -4,41 +4,44 @@ namespace Sentry\Bref\Test;
 
 use Bref\Bref;
 use PHPUnit\Framework\TestCase;
+use ReflectionProperty;
+use Sentry\Bref\Bref\BrefSubscriber;
 
 class InitTest extends TestCase
 {
-    private const COLD_START_FILE = '/tmp/bref-sentry-cold-start';
-
-    protected function setUp(): void
-    {
-        if (file_exists(self::COLD_START_FILE)) {
-            unlink(self::COLD_START_FILE);
-        }
-    }
-
     protected function tearDown(): void
     {
         unset($_SERVER['BREF_RUNTIME']);
         Bref::reset();
-        if (file_exists(self::COLD_START_FILE)) {
-            unlink(self::COLD_START_FILE);
-        }
     }
 
     public function testDoesNothingOutsideTheBrefRuntime(): void
     {
+        Bref::reset();
+
         require __DIR__ . '/../src/init.php';
 
-        // The subscriber, which tracks cold starts with that file, was not created
-        $this->assertFileDoesNotExist(self::COLD_START_FILE);
+        $this->assertSame([], $this->subscribers());
     }
 
     public function testSubscribesInTheBrefRuntime(): void
     {
+        Bref::reset();
         $_SERVER['BREF_RUNTIME'] = 'Bref\FunctionRuntime\Main';
 
         require __DIR__ . '/../src/init.php';
 
-        $this->assertFileExists(self::COLD_START_FILE);
+        $this->assertCount(1, $this->subscribers());
+        $this->assertInstanceOf(BrefSubscriber::class, $this->subscribers()[0]);
+    }
+
+    /**
+     * @return object[]
+     */
+    private function subscribers(): array
+    {
+        $subscribers = new ReflectionProperty(Bref::events(), 'subscribers');
+
+        return $subscribers->getValue(Bref::events());
     }
 }

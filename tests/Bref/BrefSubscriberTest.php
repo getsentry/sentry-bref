@@ -6,7 +6,9 @@ use Bref\Context\Context;
 use Bref\Event\Handler;
 use Bref\FpmRuntime\FpmHandler;
 use Bref\Logger\StderrLogger;
+use Bref\Runtime\ColdStartTracker;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 use Psr\Log\LogLevel;
 use RuntimeException;
 use Sentry\Bref\Bref\BrefSubscriber;
@@ -22,7 +24,8 @@ use Sentry\Tracing\SpanStatus;
 class BrefSubscriberTest extends TestCase
 {
     private const FILES = [
-        '/tmp/bref-sentry-cold-start',
+        // Bref's cold start tracker
+        '/tmp/.bref-cold-start',
         '/tmp/bref-sentry-spans.json',
         '/tmp/bref-sentry-startup.txt',
     ];
@@ -126,19 +129,53 @@ class BrefSubscriberTest extends TestCase
 
     public function testAddsTheColdStartToTheFirstInvocation(): void
     {
-        // No marker file: this is a cold start
+        $this->resetColdStartTracker();
+        // Like the Bref runtime does for the first process of a Lambda instance
+        ColdStartTracker::init();
         $subscriber = new BrefSubscriber;
-        $handler = $this->createHandler();
-
         $subscriber->beforeStartup();
         $subscriber->afterStartup();
+        ColdStartTracker::coldStartFinished();
+        ColdStartTracker::invocationStarted();
+        $handler = $this->createHandler();
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
+
+        $transaction = $this->singleTransaction();
+        $spans = [];
+        foreach ($transaction->getSpans() as $span) {
+            $spans[$span->getOp()] = $span;
+        }
+        $this->assertArrayHasKey('lambda.cold-start', $spans);
+        $this->assertArrayHasKey('bref.startup', $spans);
+        $this->assertSame(ColdStartTracker::getColdStartBeginningTime(), $spans['lambda.cold-start']->getStartTimestamp());
+        // The transaction starts with the cold start
+        $this->assertSame(ColdStartTracker::getColdStartBeginningTime(), $transaction->getStartTimestamp());
+    }
+
+    public function testLeavesProactiveInitializationsOutOfTheInvocation(): void
+    {
+        $this->resetColdStartTracker();
+        ColdStartTracker::init();
+        $subscriber = new BrefSubscriber;
+        $subscriber->beforeStartup();
+        $subscriber->afterStartup();
+        ColdStartTracker::coldStartFinished();
+        // Lambda initialized the instance before using it: it waited before the first invocation
+        usleep(100_000);
+        ColdStartTracker::invocationStarted();
+        $handler = $this->createHandler();
+        $invocationStart = microtime(true);
+
         $subscriber->beforeInvoke($handler, [], Context::fake());
         $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
 
         $transaction = $this->singleTransaction();
         $ops = array_map(fn (Span $span) => $span->getOp(), $transaction->getSpans());
-        $this->assertContains('lambda.cold-start', $ops);
-        $this->assertContains('bref.startup', $ops);
+        $this->assertNotContains('lambda.cold-start', $ops);
+        $this->assertNotContains('bref.startup', $ops);
+        $this->assertGreaterThanOrEqual($invocationStart, $transaction->getStartTimestamp());
     }
 
     public function testReportsWarmRestartsAsAChildTransaction(): void
@@ -247,9 +284,25 @@ class BrefSubscriberTest extends TestCase
      */
     private function createWarmSubscriber(): BrefSubscriber
     {
-        touch('/tmp/bref-sentry-cold-start');
+        $this->resetColdStartTracker();
+        touch('/tmp/.bref-cold-start');
+        ColdStartTracker::init();
+        ColdStartTracker::coldStartFinished();
 
         return new BrefSubscriber;
+    }
+
+    /**
+     * The tracker's state is static: reset it like a new PHP process would.
+     */
+    private function resetColdStartTracker(): void
+    {
+        $tracker = new ReflectionClass(ColdStartTracker::class);
+        $tracker->setStaticPropertyValue('currentInvocationIsColdStart', false);
+        $tracker->setStaticPropertyValue('coldStartBeginningTime', null);
+        $tracker->setStaticPropertyValue('coldStartEndedTime', null);
+        $tracker->setStaticPropertyValue('hasFirstInvocationStarted', false);
+        $tracker->setStaticPropertyValue('wasProactiveInitialization', false);
     }
 
     private function createHandler(): Handler
