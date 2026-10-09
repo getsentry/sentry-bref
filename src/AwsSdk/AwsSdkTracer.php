@@ -4,10 +4,12 @@ namespace Sentry\Bref\AwsSdk;
 
 use Aws\AwsClient;
 use Aws\CommandInterface;
+use Aws\Exception\AwsException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Psr\Http\Message\RequestInterface; // phpcs:ignore
 use Sentry\SentrySdk;
 use Sentry\Tracing\SpanContext;
+use Sentry\Tracing\SpanStatus;
 
 abstract class AwsSdkTracer
 {
@@ -41,29 +43,24 @@ abstract class AwsSdkTracer
                         'aws.sdk.region' => $awsClient->getRegion(),
                         'aws.sdk.endpoint' => (string) $awsClient->getEndpoint(),
                     ]);
+                    // The span is not set as the hub's current span: with concurrent calls
+                    // (`*Async()` methods, command pools), the calls would nest in each other
                     $span = $parent->startChild($context);
-
-                    // Set the current span to the span we just started
-                    $hub->setSpan($span);
                 }
 
                 /** @var PromiseInterface $promise */
                 $promise = $handler($command, $request);
 
-                $promise->then(static function ($result) use ($parent, $hub, $span) {
+                $promise->then(static function ($result) use ($span) {
                     // We only have a span if we started a span earlier
-                    if ($span !== null) {
-                        $span->finish();
-                        // Restore the current span back to the parent span
-                        $hub->setSpan($parent);
-                    }
+                    $span?->finish();
                     return $result;
-                }, static function ($reason) use ($parent, $hub, $span): void {
+                }, static function ($reason) use ($span): void {
                     // We only have a span if we started a span earlier
                     if ($span !== null) {
+                        $statusCode = $reason instanceof AwsException ? $reason->getStatusCode() : null;
+                        $span->setStatus($statusCode !== null ? SpanStatus::createFromHttpStatusCode($statusCode) : SpanStatus::internalError());
                         $span->finish();
-                        // Restore the current span back to the parent span
-                        $hub->setSpan($parent);
                     }
                     throw $reason;
                 });
