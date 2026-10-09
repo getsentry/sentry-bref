@@ -19,6 +19,7 @@ use PHPUnit\Framework\TestCase;
 use Sentry\Bref\AwsSdk\AwsSdkTracer;
 use Sentry\ClientBuilder;
 use Sentry\SentrySdk;
+use Sentry\State\HubInterface;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanStatus;
 use Sentry\Tracing\Transaction;
@@ -222,6 +223,25 @@ class AwsSdkTracerTest extends TestCase
         $this->assertSame(403, $spans[0]->getData()['http.response.status_code']);
         $this->assertSame('f5c1b5c0-request-id', $spans[0]->getData()['aws.request_id']);
         $this->assertSame('extended-request-id', $spans[0]->getData()['aws.extended_request_id']);
+    }
+
+    public function testNeverBreaksTheAwsCall(): void
+    {
+        $hub = $this->createMock(HubInterface::class);
+        $hub->method('getSpan')->willThrowException(new \RuntimeException('Sentry is broken'));
+        SentrySdk::setCurrentHub($hub);
+        $previousErrorLog = ini_set('error_log', '/dev/null');
+
+        try {
+            $client = $this->createSqsClient(fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
+            AwsSdkTracer::trace($client);
+            $result = $client->listQueues();
+        } finally {
+            ini_set('error_log', (string) $previousErrorLog);
+            SentrySdk::init();
+        }
+
+        $this->assertSame([self::QUEUE_URL], $result->get('QueueUrls'));
     }
 
     public function testConcurrentCallsAreSiblingSpans(): void

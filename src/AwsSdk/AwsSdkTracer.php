@@ -9,6 +9,7 @@ use Aws\ResultInterface;
 use GuzzleHttp\Promise\PromiseInterface;
 use Psr\Http\Message\RequestInterface; // phpcs:ignore
 use Psr\Http\Message\UriInterface;
+use Sentry\Bref\InternalErrors;
 use Sentry\DataCollection\DataCollectionPolicy;
 use Sentry\DataCollection\HttpMessageType;
 use Sentry\DataCollection\HttpUrlCollector;
@@ -16,6 +17,7 @@ use Sentry\SentrySdk;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanContext;
 use Sentry\Tracing\SpanStatus;
+use Throwable;
 
 abstract class AwsSdkTracer
 {
@@ -29,75 +31,88 @@ abstract class AwsSdkTracer
                 $handler,
                 $awsClient,
             ) {
-                $hub = SentrySdk::getCurrentHub();
-                $parent = $hub->getSpan();
+                // Tracing must never break the AWS call
                 $span = null;
+                try {
+                    $hub = SentrySdk::getCurrentHub();
+                    $parent = $hub->getSpan();
 
-                // Check if we have a parent span (this is the case if we started a transaction earlier)
-                if ($parent !== null) {
-                    // e.g. `SQS`, `DynamoDB`, `S3`
-                    $serviceId = $awsClient->getApi()->getServiceId();
-                    $context = new SpanContext;
-                    $context->setOp('http.client');
-                    $context->setOrigin('auto.http.aws_sdk');
-                    $context->setDescription($serviceId . '.' . $command->getName());
-                    // See https://getsentry.github.io/sentry-conventions/attributes/
-                    $context->setData([
-                        'rpc.system.name' => 'aws-api',
-                        'rpc.service' => $serviceId,
-                        'rpc.method' => $command->getName(),
-                        'cloud.region' => $awsClient->getRegion(),
-                        // From the API definition: the request is not built yet at this step
-                        'http.request.method' => $awsClient->getApi()->getOperation($command->getName())->getHttp()['method'] ?? null,
-                    ] + self::resourceData($serviceId, $command));
-                    // The span is not set as the hub's current span: with concurrent calls
-                    // (`*Async()` methods, command pools), the calls would nest in each other
-                    $span = $parent->startChild($context);
+                    // Check if we have a parent span (this is the case if we started a transaction earlier)
+                    if ($parent !== null) {
+                        // e.g. `SQS`, `DynamoDB`, `S3`
+                        $serviceId = $awsClient->getApi()->getServiceId();
+                        $context = new SpanContext;
+                        $context->setOp('http.client');
+                        $context->setOrigin('auto.http.aws_sdk');
+                        $context->setDescription($serviceId . '.' . $command->getName());
+                        // See https://getsentry.github.io/sentry-conventions/attributes/
+                        $context->setData([
+                            'rpc.system.name' => 'aws-api',
+                            'rpc.service' => $serviceId,
+                            'rpc.method' => $command->getName(),
+                            'cloud.region' => $awsClient->getRegion(),
+                            // From the API definition: the request is not built yet at this step
+                            'http.request.method' => $awsClient->getApi()->getOperation($command->getName())->getHttp()['method'] ?? null,
+                        ] + self::resourceData($serviceId, $command));
+                        // The span is not set as the hub's current span: with concurrent calls
+                        // (`*Async()` methods, command pools), the calls would nest in each other
+                        $span = $parent->startChild($context);
+                    }
+                } catch (Throwable $e) {
+                    InternalErrors::log($e);
                 }
 
                 /** @var PromiseInterface $promise */
                 $promise = $handler($command, $request);
 
                 $promise->then(static function ($result) use ($span) {
-                    // We only have a span if we started a span earlier
-                    if ($span !== null) {
-                        // Finish the span first so that its duration only covers the AWS call
-                        $span->finish();
-                        // The SDK copies the response status code and headers (lowercased) into `@metadata`
-                        $metadata = $result instanceof ResultInterface ? ($result['@metadata'] ?? []) : [];
-                        $headers = $metadata['headers'] ?? [];
-                        self::recordResponse(
-                            $span,
-                            $metadata['effectiveUri'] ?? null,
-                            $metadata['statusCode'] ?? null,
-                            // `x-amz-request-id` is used by S3
-                            $headers['x-amzn-requestid'] ?? $headers['x-amz-request-id'] ?? null,
-                            $headers['x-amz-id-2'] ?? null,
-                        );
-                        $span->setStatus(isset($metadata['statusCode']) ? SpanStatus::createFromHttpStatusCode($metadata['statusCode']) : SpanStatus::ok());
-                        // Secrets are often read by name: the ARN is only known from the response
-                        if (($span->getData()['rpc.service'] ?? null) === 'Secrets Manager' && is_string($result['ARN'] ?? null)) {
-                            $span->setData(['aws.secretsmanager.secret.arn' => $result['ARN']]);
+                    try {
+                        // We only have a span if we started a span earlier
+                        if ($span !== null) {
+                            // Finish the span first so that its duration only covers the AWS call
+                            $span->finish();
+                            // The SDK copies the response status code and headers (lowercased) into `@metadata`
+                            $metadata = $result instanceof ResultInterface ? ($result['@metadata'] ?? []) : [];
+                            $headers = $metadata['headers'] ?? [];
+                            self::recordResponse(
+                                $span,
+                                $metadata['effectiveUri'] ?? null,
+                                $metadata['statusCode'] ?? null,
+                                // `x-amz-request-id` is used by S3
+                                $headers['x-amzn-requestid'] ?? $headers['x-amz-request-id'] ?? null,
+                                $headers['x-amz-id-2'] ?? null,
+                            );
+                            $span->setStatus(isset($metadata['statusCode']) ? SpanStatus::createFromHttpStatusCode($metadata['statusCode']) : SpanStatus::ok());
+                            // Secrets are often read by name: the ARN is only known from the response
+                            if (($span->getData()['rpc.service'] ?? null) === 'Secrets Manager' && is_string($result['ARN'] ?? null)) {
+                                $span->setData(['aws.secretsmanager.secret.arn' => $result['ARN']]);
+                            }
                         }
+                    } catch (Throwable $e) {
+                        InternalErrors::log($e);
                     }
                     return $result;
                 }, static function ($reason) use ($span): void {
-                    // We only have a span if we started a span earlier
-                    if ($span !== null) {
-                        // Finish the span first so that its duration only covers the AWS call
-                        $span->finish();
-                        $statusCode = null;
-                        if ($reason instanceof AwsException) {
-                            $statusCode = $reason->getStatusCode();
-                            self::recordResponse(
-                                $span,
-                                $reason->getRequest()?->getUri(),
-                                $statusCode,
-                                $reason->getAwsRequestId(),
-                                $reason->getResponse()?->getHeaderLine('x-amz-id-2') ?: null,
-                            );
+                    try {
+                        // We only have a span if we started a span earlier
+                        if ($span !== null) {
+                            // Finish the span first so that its duration only covers the AWS call
+                            $span->finish();
+                            $statusCode = null;
+                            if ($reason instanceof AwsException) {
+                                $statusCode = $reason->getStatusCode();
+                                self::recordResponse(
+                                    $span,
+                                    $reason->getRequest()?->getUri(),
+                                    $statusCode,
+                                    $reason->getAwsRequestId(),
+                                    $reason->getResponse()?->getHeaderLine('x-amz-id-2') ?: null,
+                                );
+                            }
+                            $span->setStatus($statusCode !== null ? SpanStatus::createFromHttpStatusCode($statusCode) : SpanStatus::internalError());
                         }
-                        $span->setStatus($statusCode !== null ? SpanStatus::createFromHttpStatusCode($statusCode) : SpanStatus::internalError());
+                    } catch (Throwable $e) {
+                        InternalErrors::log($e);
                     }
                     throw $reason;
                 });
