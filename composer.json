@@ -39,21 +39,28 @@
         "php": "^8.2",
         "bref/bref": "^3.0.4",
         "bref/logger": "^1 | ^2",
-        "illuminate/support": "^7 | ^8 | ^9 | ^10 | ^11 | ^12 | ^13",
         "psr/http-server-middleware": "^1.0",
-        "sentry/sentry": "^4.33",
-        "symfony/http-foundation": "^4 | ^5 | ^6 | ^7 | ^8"
+        "sentry/sentry": "^4.33"
     },
     "require-dev": {
         "aws/aws-sdk-php": "^3",
         "bref/laravel-bridge": "^3",
-        "laravel/laravel": "^7 | ^8 | ^9 | ^10 | ^11 | ^12 | ^13",
-        "phpunit/phpunit": "^9",
+        "laravel/framework": "^12 | ^13",
         "phpstan/phpstan": "^2",
-        "symfony/dependency-injection": "^4 | ^5 | ^6 | ^7 | ^8",
-        "symfony/event-dispatcher": "^4 | ^5 | ^6 | ^7 | ^8",
-        "symfony/http-kernel": "^4 | ^5 | ^6 | ^7 | ^8",
-        "sentry/sentry-laravel": "^4.28"
+        "phpunit/phpunit": "^9",
+        "sentry/sentry-laravel": "^4.28",
+        "symfony/dependency-injection": "^6.4 | ^7 | ^8",
+        "symfony/event-dispatcher": "^6.4 | ^7 | ^8",
+        "symfony/http-kernel": "^6.4 | ^7 | ^8"
+    },
+    "conflict": {
+        "laravel/framework": "<12",
+        "symfony/http-foundation": "<6.4",
+        "symfony/http-kernel": "<6.4"
+    },
+    "suggest": {
+        "sentry/sentry-laravel": "For Laravel applications: Lambda contexts and cold starts in Laravel's transactions",
+        "sentry/sentry-symfony": "For Symfony applications: cold starts in Symfony's transactions"
     },
     "extra": {
         "laravel": {
