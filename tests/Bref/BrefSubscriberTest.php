@@ -93,6 +93,7 @@ class BrefSubscriberTest extends TestCase
             'cloud.region' => 'eu-west-3',
             'cloud.resource_id' => 'arn:aws:lambda:eu-west-3:123456789012:function:my-function',
             'cloud.account.id' => '123456789012',
+            'faas.coldstart' => false,
         ], $traceContext['data']);
         $this->assertSame([
             'cloud.region' => 'eu-west-3',
@@ -170,6 +171,7 @@ class BrefSubscriberTest extends TestCase
         foreach ($transaction->getSpans() as $span) {
             $spans[$span->getOp()] = $span;
         }
+        $this->assertTrue($transaction->getContexts()['trace']['data']['faas.coldstart']);
         $this->assertArrayHasKey('lambda.cold-start', $spans);
         $this->assertArrayHasKey('bref.startup', $spans);
         $this->assertSame(ColdStartTracker::getColdStartBeginningTime(), $spans['lambda.cold-start']->getStartTimestamp());
@@ -196,6 +198,7 @@ class BrefSubscriberTest extends TestCase
 
         $transaction = $this->singleTransaction();
         $ops = array_map(fn (Span $span) => $span->getOp(), $transaction->getSpans());
+        $this->assertFalse($transaction->getContexts()['trace']['data']['faas.coldstart']);
         $this->assertNotContains('lambda.cold-start', $ops);
         $this->assertNotContains('bref.startup', $ops);
         $this->assertGreaterThanOrEqual($invocationStart, $transaction->getStartTimestamp());

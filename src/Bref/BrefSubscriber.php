@@ -199,7 +199,10 @@ class BrefSubscriber extends BrefEventSubscriber
             'cloud.resource_id' => $functionArn,
             // arn:aws:lambda:<region>:<account-id>:function:<name>
             'cloud.account.id' => explode(':', $functionArn)[4] ?? null,
-        ]));
+        ]) + [
+            // Not when Lambda initialized the instance before the invocation (proactive initialization)
+            'faas.coldstart' => ColdStartTracker::currentInvocationIsUserFacingColdStart(),
+        ]);
         $transactionContext->setTags([
             'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
             //'faas.trigger' => 'pubsub',
