@@ -219,6 +219,7 @@ class BrefSubscriberTest extends TestCase
         $transactions = $this->transport->transactions();
         $this->assertCount(2, $transactions);
         $this->assertSame('bref.startup', $transactions[1]->getTransaction());
+        $this->assertSame('ok', $transactions[1]->getContexts()['trace']['status']);
         $this->assertSame(
             $transactions[0]->getContexts()['trace']['trace_id'],
             $transactions[1]->getContexts()['trace']['trace_id'],

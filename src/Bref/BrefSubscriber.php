@@ -87,6 +87,7 @@ class BrefSubscriber extends BrefEventSubscriber
                     $hub->setSpan($startupSpan);
                     $startupSpan->finish();
                     $hub->setSpan($transaction);
+                    $transaction->setStatus(SpanStatus::ok());
                     $transaction->finish();
 
                     StartupTracking::clear();
