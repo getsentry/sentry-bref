@@ -24,6 +24,7 @@ use Sentry\SentrySdk;
 use Sentry\State\HubInterface;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanStatus;
+use Sentry\Tracing\TransactionSource;
 
 class BrefSubscriberTest extends TestCase
 {
@@ -70,25 +71,40 @@ class BrefSubscriberTest extends TestCase
         $subscriber = $this->createWarmSubscriber();
         $handler = $this->createHandler();
 
-        $subscriber->beforeInvoke($handler, [], Context::fake());
-        $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
+        $context = new Context('request-id', (time() + 60) * 1000, 'arn:aws:lambda:eu-west-3:123456789012:function:my-function', 'trace-id');
+
+        $subscriber->beforeInvoke($handler, [], $context);
+        $subscriber->afterInvoke($handler, [], $context, 'result');
 
         $this->assertCount(0, $this->transport->errors());
         $transaction = $this->singleTransaction();
         $this->assertSame('my-function', $transaction->getTransaction());
+        $this->assertEquals(TransactionSource::component(), $transaction->getSdkMetadata('transaction_metadata')?->getSource());
         $traceContext = $transaction->getContexts()['trace'];
-        $this->assertSame('function.aws.lambda', $traceContext['op']);
+        $this->assertSame('function.aws', $traceContext['op']);
+        $this->assertSame('auto.function.aws_lambda', $traceContext['origin']);
+        $this->assertSame([
+            'faas.invocation_id' => 'request-id',
+            'faas.name' => 'my-function',
+            'faas.version' => '$LATEST',
+            'cloud.provider' => 'aws',
+            'cloud.platform' => 'aws_lambda',
+            'cloud.region' => 'eu-west-3',
+            'cloud.resource_id' => 'arn:aws:lambda:eu-west-3:123456789012:function:my-function',
+            'cloud.account.id' => '123456789012',
+        ], $traceContext['data']);
         $this->assertSame([
             'cloud.region' => 'eu-west-3',
             'faas.name' => 'my-function',
             'faas.version' => '$LATEST',
         ], $transaction->getTags());
-        $this->assertSame('fake-aws-request-id', $traceContext['data']['faas.execution']);
-        $this->assertSame('fake-invoked-function-arn', $traceContext['data']['faas.id']);
         // The handler is a child span
         $this->assertCount(1, $transaction->getSpans());
-        $this->assertEquals(SpanStatus::ok(), $transaction->getSpans()[0]->getStatus());
-        $this->assertNotNull($transaction->getSpans()[0]->getEndTimestamp());
+        $handlerSpan = $transaction->getSpans()[0];
+        $this->assertSame('function', $handlerSpan->getOp());
+        $this->assertSame($handler::class, $handlerSpan->getDescription());
+        $this->assertEquals(SpanStatus::ok(), $handlerSpan->getStatus());
+        $this->assertNotNull($handlerSpan->getEndTimestamp());
     }
 
     public function testAddsLambdaContextsToEvents(): void

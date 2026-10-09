@@ -61,13 +61,15 @@ class BrefSubscriber extends BrefEventSubscriber
                     $functionName = $_SERVER['AWS_LAMBDA_FUNCTION_NAME'] ?? '';
 
                     $context->setName('bref.startup');
-                    $context->setOp('function.aws.lambda');
+                    $context->setOp('function.aws');
+                    $context->setOrigin('auto.function.aws_lambda');
                     $context->setSource(TransactionSource::task());
                     $context->setStartTimestamp($this->startUpStart);
                     $context->setDescription('Bref and the entire PHP process restarted at the end of the previous invocation, this is by design. This happened outside of the previous invocation duration/HTTP response time (if it was an HTTP request), this is why it is tracked as a child Sentry transaction. Check out the Sentry trace to see the previous invocation. You can disable that behavior via BREF_LOOP_MAX: https://bref.sh/docs/environment/performances#bref-for-event-driven-functions');
                     $context->setData([
-                        'aws.lambda-name' => $functionName,
+                        'faas.name' => $functionName,
                         'cloud.provider' => 'aws',
+                        'cloud.platform' => 'aws_lambda',
                         'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
                     ]);
                     $context->setTags([
@@ -176,29 +178,25 @@ class BrefSubscriber extends BrefEventSubscriber
         $functionArn = $context->getInvokedFunctionArn();
         $functionName = $_SERVER['AWS_LAMBDA_FUNCTION_NAME'] ?? '';
         $functionVersion = $_SERVER['AWS_LAMBDA_FUNCTION_VERSION'] ?? '';
-        $logStreamName = $_SERVER['AWS_LAMBDA_LOG_STREAM_NAME'] ?? '';
 
+        // Like the Sentry SDK for JavaScript (`@sentry/aws-serverless`)
         $transactionContext = new TransactionContext;
         $transactionContext->setName($functionName);
-        $transactionContext->setOp('function.aws.lambda');
-        $transactionContext->setData([
-            'aws.request-id' => $context->getAwsRequestId(),
-            'aws.lambda-name' => $functionName,
-            'aws.lambda-arn' => $functionArn,
-            //'aws.trigger' => $trigger,
-            // OpenTelemetry standards
-            // https://github.com/open-telemetry/opentelemetry-specification/blob/24de67b3827a4e3ab2515cd8ab62d5bcf837c586/specification/trace/semantic_conventions/faas.md
-            'cloud.provider' => 'aws',
-            'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
-            'faas.invoked_provider' => 'aws',
-            'faas.invoked_region' => $_SERVER['AWS_REGION'] ?? '',
-            //'faas.trigger' => 'pubsub',
-            'faas.execution' => $context->getAwsRequestId(),
+        $transactionContext->setOp('function.aws');
+        $transactionContext->setOrigin('auto.function.aws_lambda');
+        $transactionContext->setSource(TransactionSource::component());
+        // See https://getsentry.github.io/sentry-conventions/attributes/
+        $transactionContext->setData(array_filter([
+            'faas.invocation_id' => $context->getAwsRequestId(),
             'faas.name' => $functionName,
-            'faas.id' => $functionArn,
-            // Get log stream ID from `AWS_LAMBDA_LOG_STREAM_NAME` env var
-            'faas.instance' => $logStreamName,
-        ]);
+            'faas.version' => $functionVersion,
+            'cloud.provider' => 'aws',
+            'cloud.platform' => 'aws_lambda',
+            'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
+            'cloud.resource_id' => $functionArn,
+            // arn:aws:lambda:<region>:<account-id>:function:<name>
+            'cloud.account.id' => explode(':', $functionArn)[4] ?? null,
+        ]));
         $transactionContext->setTags([
             'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
             //'faas.trigger' => 'pubsub',
@@ -212,7 +210,9 @@ class BrefSubscriber extends BrefEventSubscriber
         $hub->setSpan($transaction);
 
         $spanContext = new SpanContext;
-        $spanContext->setOp(is_object($handler) ? $handler::class : 'handler');
+        $spanContext->setOp('function');
+        $spanContext->setOrigin('auto.function.aws_lambda');
+        $spanContext->setDescription(is_object($handler) ? $handler::class : 'handler');
         $handleSpan = $transaction->startChild($spanContext);
         $hub->setSpan($handleSpan);
 
