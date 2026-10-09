@@ -16,7 +16,9 @@ use GuzzleHttp\Promise\Utils;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 use Sentry\Bref\AwsSdk\AwsSdkTracer;
+use Sentry\Bref\InternalErrors;
 use Sentry\ClientBuilder;
 use Sentry\SentrySdk;
 use Sentry\State\HubInterface;
@@ -230,14 +232,14 @@ class AwsSdkTracerTest extends TestCase
         $hub = $this->createMock(HubInterface::class);
         $hub->method('getSpan')->willThrowException(new \RuntimeException('Sentry is broken'));
         SentrySdk::setCurrentHub($hub);
-        $previousErrorLog = ini_set('error_log', '/dev/null');
+        InternalErrors::setLogger(new NullLogger);
 
         try {
             $client = $this->createSqsClient(fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
             AwsSdkTracer::trace($client);
             $result = $client->listQueues();
         } finally {
-            ini_set('error_log', (string) $previousErrorLog);
+            InternalErrors::setLogger(null);
             SentrySdk::init();
         }
 

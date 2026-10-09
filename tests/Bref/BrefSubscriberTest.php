@@ -5,9 +5,12 @@ namespace Sentry\Bref\Test\Bref;
 use Bref\Context\Context;
 use Bref\Event\Handler;
 use Bref\FpmRuntime\FpmHandler;
+use Bref\Logger\StderrLogger;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LogLevel;
 use RuntimeException;
 use Sentry\Bref\Bref\BrefSubscriber;
+use Sentry\Bref\InternalErrors;
 use Sentry\Bref\Test\Support\CapturingTransport;
 use Sentry\ClientBuilder;
 use Sentry\Event;
@@ -198,12 +201,12 @@ class BrefSubscriberTest extends TestCase
         file_put_contents('/tmp/bref-sentry-startup.txt', 'not JSON');
         $subscriber = $this->createWarmSubscriber();
 
-        $logs = $this->captureErrorLog(function () use ($subscriber) {
+        $logs = $this->captureLogs(function () use ($subscriber) {
             $subscriber->beforeStartup();
             $subscriber->afterStartup();
         });
 
-        $this->assertStringContainsString('Sentry Bref integration error: JsonException', $logs);
+        $this->assertStringContainsString('Sentry Bref integration error: Syntax error', $logs);
     }
 
     public function testAFailureBeforeTheInvocationDoesNotFailTheInvocation(): void
@@ -214,30 +217,29 @@ class BrefSubscriberTest extends TestCase
         $subscriber = $this->createWarmSubscriber();
         $handler = $this->createHandler();
 
-        $logs = $this->captureErrorLog(function () use ($subscriber, $handler) {
+        $logs = $this->captureLogs(function () use ($subscriber, $handler) {
             $subscriber->beforeInvoke($handler, [], Context::fake());
             $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
         });
 
-        $this->assertStringContainsString('Sentry Bref integration error: RuntimeException: Sentry is broken', $logs);
+        $this->assertStringContainsString('Sentry Bref integration error: Sentry is broken', $logs);
     }
 
     /**
-     * Runs the callback and returns what it wrote with `error_log()`.
+     * Runs the callback and returns what this package logged.
      */
-    private function captureErrorLog(callable $callback): string
+    private function captureLogs(callable $callback): string
     {
-        $file = tempnam(sys_get_temp_dir(), 'error-log');
-        $previous = ini_set('error_log', (string) $file);
+        $stream = fopen('php://memory', 'r+');
+        InternalErrors::setLogger(new StderrLogger(LogLevel::DEBUG, $stream));
         try {
             $callback();
         } finally {
-            ini_set('error_log', (string) $previous);
+            InternalErrors::setLogger(null);
         }
-        $logs = (string) file_get_contents((string) $file);
-        unlink((string) $file);
+        rewind($stream);
 
-        return $logs;
+        return (string) stream_get_contents($stream);
     }
 
     /**

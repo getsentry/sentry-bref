@@ -3,7 +3,9 @@
 namespace Sentry\Bref\Test;
 
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 use Sentry\Bref\BrefSpans;
+use Sentry\Bref\InternalErrors;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\Transaction;
 use Sentry\Tracing\TransactionContext;
@@ -89,12 +91,12 @@ class BrefSpansTest extends TestCase
         BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
         // e.g. a file created by another user (can happen when running in Docker)
         chmod(self::SPANS_FILE, 0000);
-        $previousErrorLog = ini_set('error_log', '/dev/null');
+        InternalErrors::setLogger(new NullLogger);
 
         try {
             BrefSpans::loadBrefSpans($this->createTransaction());
         } finally {
-            ini_set('error_log', (string) $previousErrorLog);
+            InternalErrors::setLogger(null);
             chmod(self::SPANS_FILE, 0666);
         }
 
