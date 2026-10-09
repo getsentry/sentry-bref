@@ -9,6 +9,7 @@ use Sentry\Bref\Laravel\Middleware\SentryApm;
 use Sentry\SentrySdk;
 use Sentry\State\HubInterface;
 use Sentry\Tracing\Span;
+use Sentry\Tracing\SpanContext;
 use Sentry\Tracing\Transaction;
 use Sentry\Tracing\TransactionContext;
 use Symfony\Component\HttpFoundation\Request;
@@ -48,6 +49,25 @@ class SentryApmTest extends TestCase
         $this->assertSame($response, $result);
         $ops = array_map(fn (Span $span) => $span->getOp(), $transaction->getSpanRecorder()?->getSpans() ?? []);
         $this->assertContains('lambda.cold-start', $ops);
+    }
+
+    public function testRepairsSpansEndingBeforeTheyStart(): void
+    {
+        $hub = SentrySdk::init();
+        $transaction = new Transaction(new TransactionContext);
+        $transaction->initSpanRecorder();
+        $hub->setSpan($transaction);
+        // Like sentry-laravel's `app.bootstrap` span with Octane: Laravel booted before the request
+        $bootstrap = $transaction->startChild(SpanContext::make()
+            ->setOp('app.bootstrap')
+            ->setStartTimestamp($transaction->getStartTimestamp())
+            ->setEndTimestamp($transaction->getStartTimestamp() - 0.05));
+        $app = new Application;
+        $app->instance(HubInterface::class, $hub);
+
+        (new SentryApm($app))->handle(new Request, fn () => new Response);
+
+        $this->assertSame($bootstrap->getEndTimestamp(), $bootstrap->getStartTimestamp());
     }
 
     public function testDoesNothingWhenSentryIsNotConfigured(): void
