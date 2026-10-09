@@ -2,9 +2,14 @@
 
 namespace Sentry\Bref\Test\AwsSdk;
 
+use Aws\AwsClient;
 use Aws\CommandInterface;
+use Aws\DynamoDb\DynamoDbClient;
 use Aws\MockHandler;
 use Aws\Result;
+use Aws\S3\S3Client;
+use Aws\SecretsManager\SecretsManagerClient;
+use Aws\Sns\SnsClient;
 use Aws\Sqs\Exception\SqsException;
 use Aws\Sqs\SqsClient;
 use GuzzleHttp\Promise\Utils;
@@ -112,6 +117,66 @@ class AwsSdkTracerTest extends TestCase
         $this->assertCount(1, $spans);
         $this->assertNotNull($spans[0]->getStatus());
         $this->assertNotEquals(SpanStatus::ok(), $spans[0]->getStatus());
+    }
+
+    /**
+     * @param class-string<AwsClient> $clientClass
+     * @param array<string, mixed> $params
+     * @param array<string, mixed> $result
+     * @param array<string, mixed> $expectedData
+     * @dataProvider provideAwsResources
+     */
+    public function testRecordsTheAwsResource(string $clientClass, string $operation, array $params, array $result, array $expectedData): void
+    {
+        $hub = SentrySdk::init();
+        $transaction = new Transaction(new TransactionContext);
+        $transaction->initSpanRecorder();
+        $hub->setSpan($transaction);
+
+        $client = new $clientClass([
+            'region' => 'eu-west-1',
+            'version' => 'latest',
+            'credentials' => false,
+            'handler' => new MockHandler([new Result($result)]),
+        ]);
+        AwsSdkTracer::trace($client);
+        $client->execute($client->getCommand($operation, $params));
+
+        $spans = $this->childSpans($transaction);
+        $this->assertCount(1, $spans);
+        foreach ($expectedData as $key => $value) {
+            $this->assertSame($value, $spans[0]->getData()[$key] ?? null, $key);
+        }
+    }
+
+    /**
+     * @return iterable<string, array{class-string<AwsClient>, string, array<string, mixed>, array<string, mixed>, array<string, mixed>}>
+     */
+    public static function provideAwsResources(): iterable
+    {
+        yield 'SQS queue' => [SqsClient::class, 'SendMessage', ['QueueUrl' => self::QUEUE_URL, 'MessageBody' => 'hello'], [], [
+            'aws.sqs.queue.url' => self::QUEUE_URL,
+        ]];
+        yield 'SNS topic' => [SnsClient::class, 'Publish', ['TopicArn' => 'arn:aws:sns:eu-west-1:123456789012:topic', 'Message' => 'hello'], [], [
+            'aws.sns.topic.arn' => 'arn:aws:sns:eu-west-1:123456789012:topic',
+        ]];
+        yield 'DynamoDB table' => [DynamoDbClient::class, 'GetItem', ['TableName' => 'users', 'Key' => ['id' => ['S' => '1']]], [], [
+            'aws.dynamodb.table_names' => ['users'],
+        ]];
+        yield 'DynamoDB batch' => [DynamoDbClient::class, 'BatchGetItem', ['RequestItems' => [
+            'users' => ['Keys' => [['id' => ['S' => '1']]]],
+            'posts' => ['Keys' => [['id' => ['S' => '1']]]],
+        ]], [], [
+            'aws.dynamodb.table_names' => ['users', 'posts'],
+        ]];
+        yield 'S3 bucket' => [S3Client::class, 'GetObject', ['Bucket' => 'my-bucket', 'Key' => 'file.txt'], [], [
+            'aws.s3.bucket' => 'my-bucket',
+        ]];
+        yield 'Secrets Manager secret' => [SecretsManagerClient::class, 'GetSecretValue', ['SecretId' => 'my-secret'], [
+            'ARN' => 'arn:aws:secretsmanager:eu-west-1:123456789012:secret:my-secret-AbCdEf',
+        ], [
+            'aws.secretsmanager.secret.arn' => 'arn:aws:secretsmanager:eu-west-1:123456789012:secret:my-secret-AbCdEf',
+        ]];
     }
 
     public function testRecordsTheFullUrlWhenDataCollectionAllowsIt(): void

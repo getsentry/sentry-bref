@@ -49,7 +49,7 @@ abstract class AwsSdkTracer
                         'cloud.region' => $awsClient->getRegion(),
                         // From the API definition: the request is not built yet at this step
                         'http.request.method' => $awsClient->getApi()->getOperation($command->getName())->getHttp()['method'] ?? null,
-                    ]);
+                    ] + self::resourceData($serviceId, $command));
                     // The span is not set as the hub's current span: with concurrent calls
                     // (`*Async()` methods, command pools), the calls would nest in each other
                     $span = $parent->startChild($context);
@@ -75,6 +75,10 @@ abstract class AwsSdkTracer
                             $headers['x-amz-id-2'] ?? null,
                         );
                         $span->setStatus(isset($metadata['statusCode']) ? SpanStatus::createFromHttpStatusCode($metadata['statusCode']) : SpanStatus::ok());
+                        // Secrets are often read by name: the ARN is only known from the response
+                        if (($span->getData()['rpc.service'] ?? null) === 'Secrets Manager' && is_string($result['ARN'] ?? null)) {
+                            $span->setData(['aws.secretsmanager.secret.arn' => $result['ARN']]);
+                        }
                     }
                     return $result;
                 }, static function ($reason) use ($span): void {
@@ -103,6 +107,36 @@ abstract class AwsSdkTracer
         };
 
         $awsClient->getHandlerList()->appendInit($middleware);
+    }
+
+    /**
+     * The AWS resource the call is about, read from the command parameters.
+     *
+     * @see https://getsentry.github.io/sentry-conventions/attributes/aws/
+     * @return array<string, mixed>
+     */
+    private static function resourceData(string $serviceId, CommandInterface $command): array
+    {
+        switch ($serviceId) {
+            case 'SQS':
+                // e.g. https://sqs.eu-west-3.amazonaws.com/123456789012/my-queue
+                $queueUrl = $command['QueueUrl'] ?? null;
+                return is_string($queueUrl) ? ['aws.sqs.queue.url' => $queueUrl] : [];
+            case 'SNS':
+                $topicArn = $command['TopicArn'] ?? $command['TargetArn'] ?? null;
+                return is_string($topicArn) ? ['aws.sns.topic.arn' => $topicArn] : [];
+            case 'DynamoDB':
+                // Batch operations (`BatchGetItem`, `BatchWriteItem`) can target several tables
+                $tableNames = is_string($command['TableName'] ?? null)
+                    ? [$command['TableName']]
+                    : array_keys(is_array($command['RequestItems'] ?? null) ? $command['RequestItems'] : []);
+                return $tableNames !== [] ? ['aws.dynamodb.table_names' => $tableNames] : [];
+            case 'S3':
+                $bucket = $command['Bucket'] ?? null;
+                return is_string($bucket) ? ['aws.s3.bucket' => $bucket] : [];
+            default:
+                return [];
+        }
     }
 
     /**
