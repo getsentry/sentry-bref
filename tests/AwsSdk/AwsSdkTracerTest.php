@@ -8,6 +8,7 @@ use Aws\Result;
 use Aws\Sqs\Exception\SqsException;
 use Aws\Sqs\SqsClient;
 use GuzzleHttp\Promise\Utils;
+use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Sentry\Bref\AwsSdk\AwsSdkTracer;
 use Sentry\SentrySdk;
@@ -27,7 +28,10 @@ class AwsSdkTracerTest extends TestCase
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
 
-        $client = $this->createSqsClient(fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
+        $client = $this->createSqsClient(fn () => new Result([
+            'QueueUrls' => [self::QUEUE_URL],
+            '@metadata' => ['headers' => ['x-amzn-requestid' => 'f5c1b5c0-request-id']],
+        ]));
         AwsSdkTracer::trace($client);
         $client->listQueues();
 
@@ -41,6 +45,8 @@ class AwsSdkTracerTest extends TestCase
             'rpc.service' => 'SQS',
             'rpc.method' => 'ListQueues',
             'cloud.region' => 'eu-west-1',
+            'http.response.status_code' => 200,
+            'aws.request_id' => 'f5c1b5c0-request-id',
         ], $spans[0]->getData());
         $this->assertEquals(SpanStatus::ok(), $spans[0]->getStatus());
         $this->assertNotNull($spans[0]->getEndTimestamp());
@@ -101,6 +107,31 @@ class AwsSdkTracerTest extends TestCase
         $this->assertCount(1, $spans);
         $this->assertNotNull($spans[0]->getStatus());
         $this->assertNotEquals(SpanStatus::ok(), $spans[0]->getStatus());
+    }
+
+    public function testRecordsTheResponseOfFailedCalls(): void
+    {
+        $hub = SentrySdk::init();
+        $transaction = new Transaction(new TransactionContext);
+        $transaction->initSpanRecorder();
+        $hub->setSpan($transaction);
+
+        $client = $this->createSqsClient(fn (CommandInterface $command) => new SqsException('Access denied', $command, [
+            'response' => new Response(403, ['x-amz-id-2' => 'extended-request-id']),
+            'request_id' => 'f5c1b5c0-request-id',
+        ]));
+        AwsSdkTracer::trace($client);
+        try {
+            $client->listQueues();
+        } catch (SqsException) {
+        }
+
+        $spans = $this->childSpans($transaction);
+        $this->assertCount(1, $spans);
+        $this->assertEquals(SpanStatus::permissionDenied(), $spans[0]->getStatus());
+        $this->assertSame(403, $spans[0]->getData()['http.response.status_code']);
+        $this->assertSame('f5c1b5c0-request-id', $spans[0]->getData()['aws.request_id']);
+        $this->assertSame('extended-request-id', $spans[0]->getData()['aws.extended_request_id']);
     }
 
     public function testConcurrentCallsAreSiblingSpans(): void
