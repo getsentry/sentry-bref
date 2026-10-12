@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\AwsSdk;
 
@@ -17,16 +19,15 @@ use Sentry\SentrySdk;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanContext;
 use Sentry\Tracing\SpanStatus;
-use Throwable;
 
 abstract class AwsSdkTracer
 {
     public static function trace(AwsClient $awsClient): void
     {
-        $middleware = function (callable $handler) use ($awsClient) {
+        $middleware = static function (callable $handler) use ($awsClient) {
             return static function (
                 CommandInterface $command,
-                RequestInterface | null $request = null,
+                ?RequestInterface $request = null,
             ) use (
                 $handler,
                 $awsClient,
@@ -41,7 +42,7 @@ abstract class AwsSdkTracer
                     if ($parent !== null) {
                         // e.g. `SQS`, `DynamoDB`, `S3`
                         $serviceId = $awsClient->getApi()->getServiceId();
-                        $context = new SpanContext;
+                        $context = new SpanContext();
                         $context->setOp('http.client');
                         $context->setOrigin('auto.http.aws_sdk');
                         $context->setDescription($serviceId . '.' . $command->getName());
@@ -58,7 +59,7 @@ abstract class AwsSdkTracer
                         // (`*Async()` methods, command pools), the calls would nest in each other
                         $span = $parent->startChild($context);
                     }
-                } catch (Throwable $e) {
+                } catch (\Throwable $e) {
                     InternalErrors::log($e);
                 }
 
@@ -84,13 +85,14 @@ abstract class AwsSdkTracer
                             );
                             $span->setStatus(isset($metadata['statusCode']) ? SpanStatus::createFromHttpStatusCode($metadata['statusCode']) : SpanStatus::ok());
                             // Secrets are often read by name: the ARN is only known from the response
-                            if (($span->getData()['rpc.service'] ?? null) === 'Secrets Manager' && is_string($result['ARN'] ?? null)) {
+                            if (($span->getData()['rpc.service'] ?? null) === 'Secrets Manager' && \is_string($result['ARN'] ?? null)) {
                                 $span->setData(['aws.secretsmanager.secret.arn' => $result['ARN']]);
                             }
                         }
-                    } catch (Throwable $e) {
+                    } catch (\Throwable $e) {
                         InternalErrors::log($e);
                     }
+
                     return $result;
                 }, static function ($reason) use ($span): void {
                     try {
@@ -111,7 +113,7 @@ abstract class AwsSdkTracer
                             }
                             $span->setStatus($statusCode !== null ? SpanStatus::createFromHttpStatusCode($statusCode) : SpanStatus::internalError());
                         }
-                    } catch (Throwable $e) {
+                    } catch (\Throwable $e) {
                         InternalErrors::log($e);
                     }
                     throw $reason;
@@ -128,6 +130,7 @@ abstract class AwsSdkTracer
      * The AWS resource the call is about, read from the command parameters.
      *
      * @see https://getsentry.github.io/sentry-conventions/attributes/aws/
+     *
      * @return array<string, mixed>
      */
     private static function resourceData(string $serviceId, CommandInterface $command): array
@@ -136,19 +139,23 @@ abstract class AwsSdkTracer
             case 'SQS':
                 // e.g. https://sqs.eu-west-3.amazonaws.com/123456789012/my-queue
                 $queueUrl = $command['QueueUrl'] ?? null;
-                return is_string($queueUrl) ? ['aws.sqs.queue.url' => $queueUrl] : [];
+
+                return \is_string($queueUrl) ? ['aws.sqs.queue.url' => $queueUrl] : [];
             case 'SNS':
                 $topicArn = $command['TopicArn'] ?? $command['TargetArn'] ?? null;
-                return is_string($topicArn) ? ['aws.sns.topic.arn' => $topicArn] : [];
+
+                return \is_string($topicArn) ? ['aws.sns.topic.arn' => $topicArn] : [];
             case 'DynamoDB':
                 // Batch operations (`BatchGetItem`, `BatchWriteItem`) can target several tables
-                $tableNames = is_string($command['TableName'] ?? null)
+                $tableNames = \is_string($command['TableName'] ?? null)
                     ? [$command['TableName']]
-                    : array_keys(is_array($command['RequestItems'] ?? null) ? $command['RequestItems'] : []);
+                    : array_keys(\is_array($command['RequestItems'] ?? null) ? $command['RequestItems'] : []);
+
                 return $tableNames !== [] ? ['aws.dynamodb.table_names' => $tableNames] : [];
             case 'S3':
                 $bucket = $command['Bucket'] ?? null;
-                return is_string($bucket) ? ['aws.s3.bucket' => $bucket] : [];
+
+                return \is_string($bucket) ? ['aws.s3.bucket' => $bucket] : [];
             default:
                 return [];
         }
@@ -167,7 +174,7 @@ abstract class AwsSdkTracer
         ?string $requestId,
         ?string $extendedRequestId,
     ): void {
-        $host = $uri !== null ? parse_url((string) $uri, PHP_URL_HOST) : null;
+        $host = $uri !== null ? parse_url((string) $uri, \PHP_URL_HOST) : null;
         // Like the HTTP integrations of the Sentry SDK, the full URL is only collected
         // when the SDK's `data_collection` option allows it
         $fullUrl = $uri !== null
@@ -175,14 +182,14 @@ abstract class AwsSdkTracer
             : null;
 
         $span->setData(array_filter([
-            'server.address' => is_string($host) ? $host : null,
+            'server.address' => \is_string($host) ? $host : null,
             // Sentry builds the span name from it, e.g. `POST sqs.eu-west-3.amazonaws.com`
-            'url.domain' => is_string($host) ? $host : null,
+            'url.domain' => \is_string($host) ? $host : null,
             'url.full' => $fullUrl,
             'http.response.status_code' => $statusCode,
             'aws.request_id' => $requestId,
             // Only set by S3
             'aws.extended_request_id' => $extendedRequestId,
-        ], fn ($value) => $value !== null && $value !== ''));
+        ], static fn ($value) => $value !== null && $value !== ''));
     }
 }

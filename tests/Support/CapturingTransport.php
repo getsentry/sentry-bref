@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Test\Support;
 
@@ -13,7 +15,9 @@ use Sentry\Transport\TransportInterface;
  */
 class CapturingTransport implements TransportInterface
 {
-    /** @var Event[] */
+    /**
+     * @var Event[]
+     */
     public array $events = [];
 
     public function send(Event $event): Result
@@ -33,7 +37,7 @@ class CapturingTransport implements TransportInterface
      */
     public function transactions(): array
     {
-        return array_values(array_filter($this->events, fn (Event $event) => $event->getType() === EventType::transaction()));
+        return array_values(array_filter($this->events, static fn (Event $event) => $event->getType() === EventType::transaction()));
     }
 
     /**
@@ -41,6 +45,6 @@ class CapturingTransport implements TransportInterface
      */
     public function errors(): array
     {
-        return array_values(array_filter($this->events, fn (Event $event) => $event->getType() === EventType::event()));
+        return array_values(array_filter($this->events, static fn (Event $event) => $event->getType() === EventType::event()));
     }
 }

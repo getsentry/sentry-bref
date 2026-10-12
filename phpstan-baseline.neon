@@ -1,0 +1,253 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Cannot access offset ''ARN'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Cannot access offset ''effectiveUri'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Cannot access offset ''headers'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Cannot access offset ''statusCode'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Cannot access offset ''x\-amz\-id\-2'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Cannot access offset ''x\-amz\-request\-id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Cannot access offset ''x\-amzn\-requestid'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Invalid type mixed to throw\.$#'
+			identifier: throw.notThrowable
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Parameter \#1 \$statusCode of static method Sentry\\Tracing\\SpanStatus\:\:createFromHttpStatusCode\(\) expects int, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Parameter \#2 \$uri of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects Psr\\Http\\Message\\UriInterface\|string\|null, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Parameter \#3 \$statusCode of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects int\|null, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Parameter \#4 \$requestId of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects string\|null, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Parameter \#5 \$extendedRequestId of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects string\|null, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/AwsSdk/AwsSdkTracer.php
+
+		-
+			message: '#^Binary operation "\." between ''https\://console\.aws…'' and mixed results in an error\.$#'
+			identifier: binaryOp.invalid
+			count: 1
+			path: src/Bref/BrefSubscriber.php
+
+		-
+			message: '#^Cannot call method get\(\) on mixed\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Bref/BrefSubscriber.php
+
+		-
+			message: '#^Parameter \#1 \$name of method Sentry\\Tracing\\TransactionContext\:\:setName\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Bref/BrefSubscriber.php
+
+		-
+			message: '#^Parameter \#1 \$string of function urlencode expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/Bref/BrefSubscriber.php
+
+		-
+			message: '#^Parameter \#1 \$tags of method Sentry\\Tracing\\SpanContext\:\:setTags\(\) expects array\<string, string\>, array\<string, mixed\> given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/Bref/BrefSubscriber.php
+
+		-
+			message: '#^Argument of an invalid type list\<string\>\|false supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: src/BrefSpans.php
+
+		-
+			message: '#^Cannot access offset ''description'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/BrefSpans.php
+
+		-
+			message: '#^Cannot access offset ''end'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/BrefSpans.php
+
+		-
+			message: '#^Cannot access offset ''id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/BrefSpans.php
+
+		-
+			message: '#^Cannot access offset ''start'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: src/BrefSpans.php
+
+		-
+			message: '#^Parameter \#1 \$description of method Sentry\\Tracing\\SpanContext\:\:setDescription\(\) expects string\|null, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/BrefSpans.php
+
+		-
+			message: '#^Parameter \#1 \$endTimestamp of method Sentry\\Tracing\\SpanContext\:\:setEndTimestamp\(\) expects float\|null, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/BrefSpans.php
+
+		-
+			message: '#^Parameter \#1 \$op of method Sentry\\Tracing\\SpanContext\:\:setOp\(\) expects string\|null, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/BrefSpans.php
+
+		-
+			message: '#^Parameter \#1 \$startTimestamp of method Sentry\\Tracing\\Span\:\:setStartTimestamp\(\) expects float, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/BrefSpans.php
+
+		-
+			message: '#^Parameter \#1 \$startTimestamp of method Sentry\\Tracing\\SpanContext\:\:setStartTimestamp\(\) expects float\|null, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/BrefSpans.php
+
+		-
+			message: '#^Cannot access offset ''events'' on Illuminate\\Contracts\\Foundation\\Application\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Laravel/BrefSentryServiceProvider.php
+
+		-
+			message: '#^Cannot access offset ''baggage'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/StartupTracking.php
+
+		-
+			message: '#^Cannot access offset ''parentTrace'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/StartupTracking.php
+
+		-
+			message: '#^Parameter \#1 \$json of function json_decode expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/StartupTracking.php
+
+		-
+			message: '#^Parameter \#1 \$sentryTrace of function Sentry\\continueTrace expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/StartupTracking.php
+
+		-
+			message: '#^Parameter \#2 \$baggage of function Sentry\\continueTrace expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/StartupTracking.php
+
+		-
+			message: '#^Cannot access offset ''faas\.coldstart'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: tests/Bref/BrefSubscriberTest.php
+
+		-
+			message: '#^Cannot call method getSource\(\) on mixed\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: tests/Bref/BrefSubscriberTest.php
+
+		-
+			message: '#^Parameter \#1 \$stream of function rewind expects resource, resource\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/Bref/BrefSubscriberTest.php
+
+		-
+			message: '#^Parameter \#1 \$stream of function stream_get_contents expects resource, resource\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/Bref/BrefSubscriberTest.php
+
+		-
+			message: '#^Parameter \#2 \$stream of class Bref\\Logger\\StderrLogger constructor expects resource\|string, resource\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/Bref/BrefSubscriberTest.php
+
+		-
+			message: '#^Possibly invalid array key type string\|null\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 1
+			path: tests/Bref/BrefSubscriberTest.php
+
+		-
+			message: '#^Method Sentry\\Bref\\Test\\InitTest\:\:subscribers\(\) should return array\<object\> but returns mixed\.$#'
+			identifier: return.type
+			count: 1
+			path: tests/InitTest.php
+
+		-
+			message: '#^Cannot call method dispatch\(\) on mixed\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: tests/Laravel/BrefSentryServiceProviderTest.php

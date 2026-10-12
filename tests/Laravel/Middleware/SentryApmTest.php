@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Test\Laravel\Middleware;
 
@@ -39,25 +41,25 @@ class SentryApmTest extends TestCase
     public function testLoadsBrefSpansIntoTheCurrentTransaction(): void
     {
         $hub = SentrySdk::init();
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
         BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
-        $app = new Application;
+        $app = new Application();
         $app->instance(HubInterface::class, $hub);
 
-        $response = new Response;
-        $result = (new SentryApm($app))->handle(new Request, fn () => $response);
+        $response = new Response();
+        $result = (new SentryApm($app))->handle(new Request(), static fn () => $response);
 
         $this->assertSame($response, $result);
-        $ops = array_map(fn (Span $span) => $span->getOp(), $transaction->getSpanRecorder()?->getSpans() ?? []);
+        $ops = array_map(static fn (Span $span) => $span->getOp(), $transaction->getSpanRecorder()?->getSpans() ?? []);
         $this->assertContains('lambda.cold-start', $ops);
     }
 
     public function testRepairsSpansEndingBeforeTheyStart(): void
     {
         $hub = SentrySdk::init();
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
         // Like sentry-laravel's `app.bootstrap` span with Octane: Laravel booted before the request
@@ -65,10 +67,10 @@ class SentryApmTest extends TestCase
             ->setOp('app.bootstrap')
             ->setStartTimestamp($transaction->getStartTimestamp())
             ->setEndTimestamp($transaction->getStartTimestamp() - 0.05));
-        $app = new Application;
+        $app = new Application();
         $app->instance(HubInterface::class, $hub);
 
-        (new SentryApm($app))->handle(new Request, fn () => new Response);
+        (new SentryApm($app))->handle(new Request(), static fn () => new Response());
 
         $this->assertSame($bootstrap->getEndTimestamp(), $bootstrap->getStartTimestamp());
     }
@@ -76,13 +78,13 @@ class SentryApmTest extends TestCase
     public function testDoesNothingWhenSentryIsNotConfigured(): void
     {
         $hub = SentrySdk::init();
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
         BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
 
         // The Sentry Laravel SDK is not installed or not configured
-        (new SentryApm(new Application))->handle(new Request, fn () => new Response);
+        (new SentryApm(new Application()))->handle(new Request(), static fn () => new Response());
 
         $this->assertCount(1, $transaction->getSpanRecorder()?->getSpans() ?? []);
     }

@@ -45,6 +45,7 @@
     "require-dev": {
         "aws/aws-sdk-php": "^3",
         "bref/laravel-bridge": "^3",
+        "friendsofphp/php-cs-fixer": "^3.95",
         "laravel/framework": "^12 | ^13",
         "phpstan/phpstan": "^2",
         "phpunit/phpunit": "^9",
@@ -61,6 +62,17 @@
     "suggest": {
         "sentry/sentry-laravel": "For Laravel applications: Lambda contexts and cold starts in Laravel's transactions",
         "sentry/sentry-symfony": "For Symfony applications: cold starts in Symfony's transactions"
+    },
+    "scripts": {
+        "check": [
+            "@cs-check",
+            "@phpstan",
+            "@tests"
+        ],
+        "tests": "vendor/bin/phpunit",
+        "cs-check": "vendor/bin/php-cs-fixer fix --verbose --diff --dry-run",
+        "cs-fix": "vendor/bin/php-cs-fixer fix --verbose --diff",
+        "phpstan": "vendor/bin/phpstan analyse"
     },
     "extra": {
         "laravel": {

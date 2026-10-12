@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Test;
 
@@ -75,7 +77,7 @@ class BrefSpansTest extends TestCase
 
     public function testInvalidLinesAreSkipped(): void
     {
-        file_put_contents(self::SPANS_FILE, 'not JSON' . PHP_EOL);
+        file_put_contents(self::SPANS_FILE, 'not JSON' . \PHP_EOL);
         BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
 
         $transaction = $this->createTransaction();
@@ -90,14 +92,14 @@ class BrefSpansTest extends TestCase
     {
         BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
         // e.g. a file created by another user (can happen when running in Docker)
-        chmod(self::SPANS_FILE, 0000);
-        InternalErrors::setLogger(new NullLogger);
+        chmod(self::SPANS_FILE, 0o000);
+        InternalErrors::setLogger(new NullLogger());
 
         try {
             BrefSpans::loadBrefSpans($this->createTransaction());
         } finally {
             InternalErrors::setLogger(null);
-            chmod(self::SPANS_FILE, 0666);
+            chmod(self::SPANS_FILE, 0o666);
         }
 
         $this->addToAssertionCount(1);
@@ -105,7 +107,7 @@ class BrefSpansTest extends TestCase
 
     private function createTransaction(): Transaction
     {
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
 
         return $transaction;
@@ -118,6 +120,6 @@ class BrefSpansTest extends TestCase
     {
         $spans = $transaction->getSpanRecorder()?->getSpans() ?? [];
 
-        return array_values(array_filter($spans, fn (Span $span) => $span !== $transaction));
+        return array_values(array_filter($spans, static fn (Span $span) => $span !== $transaction));
     }
 }

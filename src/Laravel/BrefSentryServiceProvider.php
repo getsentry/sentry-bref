@@ -1,13 +1,15 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Laravel;
 
 use Illuminate\Contracts\Http\Kernel as HttpKernelInterface;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Support\ServiceProvider;
 use Sentry\Bref\BrefSpans;
 use Sentry\Bref\Laravel\Middleware\SentryApm;
 use Sentry\SentrySdk;
-use Illuminate\Support\ServiceProvider;
 
 class BrefSentryServiceProvider extends ServiceProvider
 {

@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Test\Laravel;
 
@@ -40,20 +42,20 @@ class BrefSentryServiceProviderTest extends TestCase
 
     public function testAddsBrefSpansToTheTransactionOfTheJob(): void
     {
-        $app = new Application;
+        $app = new Application();
         // Laravel's own listeners use facades
         Facade::setFacadeApplication($app);
         $app->register(BrefSentryServiceProvider::class);
         $app->boot();
         // sentry-laravel started the job's transaction
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         SentrySdk::init()->setSpan($transaction);
         BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
 
         $app['events']->dispatch(new JobProcessing('sqs', $this->createMock(Job::class)));
 
-        $ops = array_map(fn (Span $span) => $span->getOp(), $transaction->getSpanRecorder()?->getSpans() ?? []);
+        $ops = array_map(static fn (Span $span) => $span->getOp(), $transaction->getSpanRecorder()?->getSpans() ?? []);
         $this->assertContains('lambda.cold-start', $ops);
     }
 }

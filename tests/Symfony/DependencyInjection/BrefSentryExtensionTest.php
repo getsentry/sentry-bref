@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Test\Symfony\DependencyInjection;
 
@@ -14,8 +16,8 @@ class BrefSentryExtensionTest extends TestCase
 {
     public function testRegistersTheEventSubscriber(): void
     {
-        $container = new ContainerBuilder;
-        (new BrefSentryExtension)->load([], $container);
+        $container = new ContainerBuilder();
+        (new BrefSentryExtension())->load([], $container);
 
         $definition = $container->getDefinition(EventSubscriber::class);
         $this->assertTrue($definition->isAutowired());

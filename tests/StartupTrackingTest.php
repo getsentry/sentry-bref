@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Test;
 
@@ -36,7 +38,7 @@ class StartupTrackingTest extends TestCase
             'dsn' => 'https://public@example.com/1',
             'traces_sample_rate' => 1.0,
         ])->getClient());
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->setSampled(true);
         $hub->setSpan($transaction);
 

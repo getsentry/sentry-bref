@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Test\Bref;
 
@@ -7,14 +9,12 @@ use Bref\Event\Handler;
 use Bref\FpmRuntime\FpmHandler;
 use Bref\LaravelBridge\Http\OctaneHandler;
 use Bref\LaravelBridge\Queue\QueueHandler;
-use Illuminate\Config\Repository;
-use Illuminate\Container\Container;
 use Bref\Logger\StderrLogger;
 use Bref\Runtime\ColdStartTracker;
+use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
 use PHPUnit\Framework\TestCase;
-use ReflectionClass;
 use Psr\Log\LogLevel;
-use RuntimeException;
 use Sentry\Bref\Bref\BrefSubscriber;
 use Sentry\Bref\InternalErrors;
 use Sentry\Bref\Test\Support\CapturingTransport;
@@ -36,7 +36,9 @@ class BrefSubscriberTest extends TestCase
     ];
 
     private CapturingTransport $transport;
-    /** @var array<string, mixed> */
+    /**
+     * @var array<string, mixed>
+     */
     private array $server;
 
     protected function setUp(): void
@@ -50,7 +52,7 @@ class BrefSubscriberTest extends TestCase
         $_SERVER['AWS_LAMBDA_LOG_STREAM_NAME'] = '2026/10/09/[$LATEST]abc';
         $_SERVER['AWS_LAMBDA_INITIALIZATION_TYPE'] = 'on-demand';
 
-        $this->transport = new CapturingTransport;
+        $this->transport = new CapturingTransport();
         SentrySdk::init()->bindClient(ClientBuilder::create([
             'dsn' => 'https://public@example.com/1',
             'traces_sample_rate' => 1.0,
@@ -137,7 +139,7 @@ class BrefSubscriberTest extends TestCase
     {
         $subscriber = $this->createWarmSubscriber();
         $handler = $this->createHandler();
-        $error = new RuntimeException('Invocation failed');
+        $error = new \RuntimeException('Invocation failed');
 
         $subscriber->beforeInvoke($handler, [], Context::fake());
         $subscriber->afterInvoke($handler, [], Context::fake(), null, $error);
@@ -158,7 +160,7 @@ class BrefSubscriberTest extends TestCase
         $this->resetColdStartTracker();
         // Like the Bref runtime does for the first process of a Lambda instance
         ColdStartTracker::init();
-        $subscriber = new BrefSubscriber;
+        $subscriber = new BrefSubscriber();
         $subscriber->beforeStartup();
         $subscriber->afterStartup();
         ColdStartTracker::coldStartFinished();
@@ -185,7 +187,7 @@ class BrefSubscriberTest extends TestCase
     {
         $this->resetColdStartTracker();
         ColdStartTracker::init();
-        $subscriber = new BrefSubscriber;
+        $subscriber = new BrefSubscriber();
         $subscriber->beforeStartup();
         $subscriber->afterStartup();
         ColdStartTracker::coldStartFinished();
@@ -199,7 +201,7 @@ class BrefSubscriberTest extends TestCase
         $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
 
         $transaction = $this->singleTransaction();
-        $ops = array_map(fn (Span $span) => $span->getOp(), $transaction->getSpans());
+        $ops = array_map(static fn (Span $span) => $span->getOp(), $transaction->getSpans());
         $this->assertFalse($transaction->getContexts()['trace']['data']['faas.coldstart']);
         $this->assertNotContains('lambda.cold-start', $ops);
         $this->assertNotContains('bref.startup', $ops);
@@ -251,7 +253,7 @@ class BrefSubscriberTest extends TestCase
      */
     public function testTracesQueueJobsWhenSentryLaravelDoesNot(): void
     {
-        Container::setInstance($container = new Container);
+        Container::setInstance($container = new Container());
         $container->instance('config', new Repository(['sentry' => ['tracing' => ['queue_job_transactions' => false]]]));
         $subscriber = $this->createWarmSubscriber();
         $handler = $this->createMock(QueueHandler::class);
@@ -271,7 +273,7 @@ class BrefSubscriberTest extends TestCase
         $handler = $this->createMock(OctaneHandler::class);
 
         $subscriber->beforeInvoke($handler, $this->createHttpEvent(), Context::fake());
-        $subscriber->afterInvoke($handler, $this->createHttpEvent(), Context::fake(), null, new RuntimeException('Bref error'));
+        $subscriber->afterInvoke($handler, $this->createHttpEvent(), Context::fake(), null, new \RuntimeException('Bref error'));
 
         // sentry-laravel creates the transaction, named after the route
         $this->assertSame([], $this->transport->transactions());
@@ -299,7 +301,7 @@ class BrefSubscriberTest extends TestCase
         $subscriber = $this->createWarmSubscriber();
         $handler = new FpmHandler('index.php');
         // e.g. a PHP-FPM timeout
-        $error = new RuntimeException('The PHP script timed out');
+        $error = new \RuntimeException('The PHP script timed out');
 
         $subscriber->beforeInvoke($handler, $this->createHttpEvent(), Context::fake());
         $subscriber->afterInvoke($handler, $this->createHttpEvent(), Context::fake(), null, $error);
@@ -321,7 +323,7 @@ class BrefSubscriberTest extends TestCase
         file_put_contents('/tmp/bref-sentry-startup.txt', 'not JSON');
         $subscriber = $this->createWarmSubscriber();
 
-        $logs = $this->captureLogs(function () use ($subscriber) {
+        $logs = $this->captureLogs(static function () use ($subscriber) {
             $subscriber->beforeStartup();
             $subscriber->afterStartup();
         });
@@ -332,12 +334,12 @@ class BrefSubscriberTest extends TestCase
     public function testAFailureBeforeTheInvocationDoesNotFailTheInvocation(): void
     {
         $hub = $this->createMock(HubInterface::class);
-        $hub->method('startTransaction')->willThrowException(new RuntimeException('Sentry is broken'));
+        $hub->method('startTransaction')->willThrowException(new \RuntimeException('Sentry is broken'));
         SentrySdk::setCurrentHub($hub);
         $subscriber = $this->createWarmSubscriber();
         $handler = $this->createHandler();
 
-        $logs = $this->captureLogs(function () use ($subscriber, $handler) {
+        $logs = $this->captureLogs(static function () use ($subscriber, $handler) {
             $subscriber->beforeInvoke($handler, [], Context::fake());
             $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
         });
@@ -372,7 +374,7 @@ class BrefSubscriberTest extends TestCase
         ColdStartTracker::init();
         ColdStartTracker::coldStartFinished();
 
-        return new BrefSubscriber;
+        return new BrefSubscriber();
     }
 
     /**
@@ -380,7 +382,7 @@ class BrefSubscriberTest extends TestCase
      */
     private function resetColdStartTracker(): void
     {
-        $tracker = new ReflectionClass(ColdStartTracker::class);
+        $tracker = new \ReflectionClass(ColdStartTracker::class);
         $tracker->setStaticPropertyValue('currentInvocationIsColdStart', false);
         $tracker->setStaticPropertyValue('coldStartBeginningTime', null);
         $tracker->setStaticPropertyValue('coldStartEndedTime', null);

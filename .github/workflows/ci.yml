@@ -4,7 +4,13 @@ on:
     push:
         branches: ['main']
     pull_request:
-        branches: ['*']
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
 
@@ -20,15 +26,15 @@ jobs:
                     -   php: '8.2'
                         dependency-version: '--prefer-lowest'
         steps:
-            -   uses: actions/checkout@v4
+            -   uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             -   name: Setup PHP
-                uses: shivammathur/setup-php@v2
+                uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
                 with:
                     php-version: ${{ matrix.php }}
                     tools: composer:v2
                     coverage: none
             -   name: Cache Composer dependencies
-                uses: actions/cache@v4
+                uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
                 with:
                     path: ~/.composer/cache
                     key: php-${{ matrix.php }}-composer-locked-${{ hashFiles('composer.lock') }}
@@ -44,9 +50,9 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         steps:
-            -   uses: actions/checkout@v4
+            -   uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             -   name: Setup PHP
-                uses: shivammathur/setup-php@v2
+                uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
                 with:
                     php-version: '8.5'
                     tools: composer:v2
@@ -64,9 +70,9 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         steps:
-            -   uses: actions/checkout@v4
+            -   uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             -   name: Setup PHP
-                uses: shivammathur/setup-php@v2
+                uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
                 with:
                     php-version: '8.2'
                     tools: composer:v2
@@ -78,24 +84,36 @@ jobs:
             -   name: PHPUnit
                 run: vendor/bin/phpunit --exclude-group laravel
 
-    cs:
-        name: Coding standards
+    php-cs-fixer:
+        name: PHP CS Fixer
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         steps:
-            -   uses: actions/checkout@v4
+            -   uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             -   name: Setup PHP
-                uses: shivammathur/setup-php@v2
+                uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
                 with:
-                    php-version: 8.3
-                    tools: composer:v2, cs2pr
+                    php-version: '8.5'
+                    tools: composer:v2
                     coverage: none
-            -   name: Cache Composer dependencies
-                uses: actions/cache@v4
-                with:
-                    path: ~/.composer/cache
-                    key: php-composer-locked-${{ hashFiles('composer.lock') }}
-                    restore-keys: php-composer-locked-
             -   name: Install PHP dependencies
-                run: composer install --no-interaction --no-progress --no-suggest
+                run: composer update --prefer-dist --no-interaction --no-progress
+            -   name: PHP CS Fixer
+                run: composer cs-check
+
+    phpstan:
+        name: PHPStan
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            -   uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            -   name: Setup PHP
+                uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+                with:
+                    php-version: '8.5'
+                    tools: composer:v2
+                    coverage: none
+            -   name: Install PHP dependencies
+                run: composer update --prefer-dist --no-interaction --no-progress
             -   name: PHPStan
-                run: vendor/bin/phpstan
+                run: composer phpstan

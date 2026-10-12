@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Bref;
 
@@ -8,14 +10,14 @@ use Bref\Event\Http\HttpRequestEvent;
 use Bref\FpmRuntime\FpmHandler;
 use Bref\LaravelBridge\Http\OctaneHandler;
 use Bref\LaravelBridge\Queue\QueueHandler;
-use Illuminate\Container\Container;
 use Bref\Listener\BrefEventSubscriber;
 use Bref\Runtime\ColdStartTracker;
+use Illuminate\Container\Container;
+use Psr\Http\Server\RequestHandlerInterface;
 use Sentry\Bref\BrefSpans;
 use Sentry\Bref\InternalErrors;
 use Sentry\Bref\Laravel\LaravelBridge;
 use Sentry\Bref\StartupTracking;
-use Psr\Http\Server\RequestHandlerInterface;
 use Sentry\Event;
 use Sentry\EventHint;
 use Sentry\SentrySdk;
@@ -25,7 +27,6 @@ use Sentry\Tracing\SpanContext;
 use Sentry\Tracing\SpanStatus;
 use Sentry\Tracing\TransactionContext;
 use Sentry\Tracing\TransactionSource;
-use Throwable;
 
 use function Sentry\captureEvent;
 use function Sentry\captureException;
@@ -36,9 +37,9 @@ use function Sentry\startTransaction;
  */
 class BrefSubscriber extends BrefEventSubscriber
 {
-    private float|null $startUpStart = null;
-    private float|null $startUpEnd = null;
-    private Span|null $currentInvokeSpan = null;
+    private ?float $startUpStart = null;
+    private ?float $startUpEnd = null;
+    private ?Span $currentInvokeSpan = null;
 
     public function beforeStartup(): void
     {
@@ -80,7 +81,7 @@ class BrefSubscriber extends BrefEventSubscriber
                     $hub = SentrySdk::getCurrentHub();
                     $transaction = $hub->startTransaction($context);
                     $hub->setSpan($transaction);
-                    $spanContext = new SpanContext;
+                    $spanContext = new SpanContext();
                     $spanContext->setOp('bref.startup');
                     $spanContext->setStartTimestamp($this->startUpStart);
                     $startupSpan = $transaction->startChild($spanContext);
@@ -93,7 +94,7 @@ class BrefSubscriber extends BrefEventSubscriber
                     StartupTracking::clear();
                 }
             }
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             InternalErrors::log($e);
         }
     }
@@ -127,7 +128,7 @@ class BrefSubscriber extends BrefEventSubscriber
             }
 
             $this->currentInvokeSpan = $this->startTransaction($handler, $context);
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             InternalErrors::log($e);
         }
     }
@@ -137,7 +138,7 @@ class BrefSubscriber extends BrefEventSubscriber
         mixed $event,
         Context $context,
         mixed $result,
-        Throwable |null $error = null,
+        ?\Throwable $error = null,
     ): void {
         try {
             if ($handler instanceof FpmHandler) {
@@ -170,7 +171,7 @@ class BrefSubscriber extends BrefEventSubscriber
 
             $this->stopTransaction($this->currentInvokeSpan);
             $this->currentInvokeSpan = null;
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             InternalErrors::log($e);
         }
     }
@@ -184,7 +185,7 @@ class BrefSubscriber extends BrefEventSubscriber
         $functionVersion = $_SERVER['AWS_LAMBDA_FUNCTION_VERSION'] ?? '';
 
         // Like the Sentry SDK for JavaScript (`@sentry/aws-serverless`)
-        $transactionContext = new TransactionContext;
+        $transactionContext = new TransactionContext();
         $transactionContext->setName($functionName);
         $transactionContext->setOp('function.aws');
         $transactionContext->setOrigin('auto.function.aws_lambda');
@@ -206,7 +207,7 @@ class BrefSubscriber extends BrefEventSubscriber
         ]);
         $transactionContext->setTags([
             'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
-            //'faas.trigger' => 'pubsub',
+            // 'faas.trigger' => 'pubsub',
             'faas.name' => $functionName,
             'faas.version' => $functionVersion,
         ]);
@@ -216,10 +217,10 @@ class BrefSubscriber extends BrefEventSubscriber
         $hub = SentrySdk::getCurrentHub();
         $hub->setSpan($transaction);
 
-        $spanContext = new SpanContext;
+        $spanContext = new SpanContext();
         $spanContext->setOp('function');
         $spanContext->setOrigin('auto.function.aws_lambda');
-        $spanContext->setDescription(is_object($handler) ? $handler::class : 'handler');
+        $spanContext->setDescription(\is_object($handler) ? $handler::class : 'handler');
         $handleSpan = $transaction->startChild($spanContext);
         $hub->setSpan($handleSpan);
 
@@ -233,14 +234,15 @@ class BrefSubscriber extends BrefEventSubscriber
      */
     private function frameworkCreatesTheTransaction(callable|Handler|RequestHandlerInterface $handler): bool
     {
-        if (! class_exists(\Sentry\Laravel\Integration::class)) {
+        if (!class_exists(\Sentry\Laravel\Integration::class)) {
             return false;
         }
 
         if ($handler instanceof QueueHandler) {
             // Jobs can be configured to not be traced as transactions
             $container = Container::getInstance();
-            return ! $container->bound('config') || (bool) $container->make('config')->get('sentry.tracing.queue_job_transactions', true);
+
+            return !$container->bound('config') || (bool) $container->make('config')->get('sentry.tracing.queue_job_transactions', true);
         }
 
         return $handler instanceof OctaneHandler;
@@ -285,7 +287,7 @@ class BrefSubscriber extends BrefEventSubscriber
         $hub->getTransaction()?->finish();
     }
 
-    private function reportError(Throwable $error, mixed $event): void
+    private function reportError(\Throwable $error, mixed $event): void
     {
         $httpEvent = new HttpRequestEvent($event);
 
@@ -294,7 +296,7 @@ class BrefSubscriber extends BrefEventSubscriber
             $laravel = LaravelBridge::bootLaravel();
         }
 
-        $hint = new EventHint;
+        $hint = new EventHint();
         if ($hint->exception === null) {
             $hint->exception = $error;
         }

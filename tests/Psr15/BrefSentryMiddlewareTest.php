@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Test\Psr15;
 
@@ -34,7 +36,7 @@ class BrefSentryMiddlewareTest extends TestCase
     public function testLoadsBrefSpansIntoTheCurrentTransaction(): void
     {
         $hub = SentrySdk::init();
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
         BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
@@ -43,10 +45,10 @@ class BrefSentryMiddlewareTest extends TestCase
         $handler = $this->createMock(RequestHandlerInterface::class);
         $handler->expects($this->once())->method('handle')->willReturn($response);
 
-        $result = (new BrefSentryMiddleware)->process($this->createMock(ServerRequestInterface::class), $handler);
+        $result = (new BrefSentryMiddleware())->process($this->createMock(ServerRequestInterface::class), $handler);
 
         $this->assertSame($response, $result);
-        $ops = array_map(fn (Span $span) => $span->getOp(), $transaction->getSpanRecorder()?->getSpans() ?? []);
+        $ops = array_map(static fn (Span $span) => $span->getOp(), $transaction->getSpanRecorder()?->getSpans() ?? []);
         $this->assertContains('lambda.cold-start', $ops);
     }
 
@@ -58,7 +60,7 @@ class BrefSentryMiddlewareTest extends TestCase
         $handler = $this->createMock(RequestHandlerInterface::class);
         $handler->expects($this->once())->method('handle')->willReturn($response);
 
-        $result = (new BrefSentryMiddleware)->process($this->createMock(ServerRequestInterface::class), $handler);
+        $result = (new BrefSentryMiddleware())->process($this->createMock(ServerRequestInterface::class), $handler);
 
         $this->assertSame($response, $result);
     }

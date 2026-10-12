@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref;
 
@@ -25,16 +27,16 @@ class StartupTracking
 
     public static function createChildTransaction(): ?TransactionContext
     {
-        if (! file_exists(self::FILE)) {
+        if (!file_exists(self::FILE)) {
             return null;
         }
 
         $json = file_get_contents(self::FILE);
-        $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        $data = json_decode($json, true, 512, \JSON_THROW_ON_ERROR);
         $parentTrace = $data['parentTrace'] ?? null;
         $baggage = $data['baggage'] ?? null;
 
-        if (! $parentTrace || ! $baggage) {
+        if (!$parentTrace || !$baggage) {
             return null;
         }
 

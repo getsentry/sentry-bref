@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Symfony;
 
@@ -19,7 +21,7 @@ class EventSubscriber implements EventSubscriberInterface
 
     public function onKernelRequest(RequestEvent $event): void
     {
-        if (! $event->isMainRequest()) {
+        if (!$event->isMainRequest()) {
             // don't do anything if it's not the main request
             return;
         }
