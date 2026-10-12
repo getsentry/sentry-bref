@@ -37,7 +37,7 @@
     },
     "require": {
         "php": "^8.2",
-        "bref/bref": "^3.0.4",
+        "bref/bref": "^3.0.13",
         "bref/logger": "^1 | ^2",
         "psr/http-server-middleware": "^1.0",
         "sentry/sentry": "^4.33"
