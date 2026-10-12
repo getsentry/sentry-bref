@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Symfony;
 
@@ -10,6 +12,6 @@ class BrefSentryBundle extends Bundle
 {
     public function getContainerExtension(): ?ExtensionInterface
     {
-        return new BrefSentryExtension;
+        return new BrefSentryExtension();
     }
 }

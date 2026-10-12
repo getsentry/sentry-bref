@@ -1,10 +1,11 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref;
 
 use Bref\Logger\StderrLogger;
 use Psr\Log\LoggerInterface;
-use Throwable;
 
 /**
  * Tracing must never break the application it observes: errors in this package are
@@ -17,9 +18,9 @@ class InternalErrors
 {
     private static ?LoggerInterface $logger = null;
 
-    public static function log(Throwable $e): void
+    public static function log(\Throwable $e): void
     {
-        self::$logger ??= new StderrLogger;
+        self::$logger ??= new StderrLogger();
         self::$logger->error('Sentry Bref integration error: ' . $e->getMessage(), ['exception' => $e]);
     }
 

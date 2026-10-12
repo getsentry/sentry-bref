@@ -1,10 +1,11 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Test;
 
 use Bref\Bref;
 use PHPUnit\Framework\TestCase;
-use ReflectionProperty;
 use Sentry\Bref\Bref\BrefSubscriber;
 
 class InitTest extends TestCase
@@ -40,7 +41,7 @@ class InitTest extends TestCase
      */
     private function subscribers(): array
     {
-        $subscribers = new ReflectionProperty(Bref::events(), 'subscribers');
+        $subscribers = new \ReflectionProperty(Bref::events(), 'subscribers');
 
         return $subscribers->getValue(Bref::events());
     }

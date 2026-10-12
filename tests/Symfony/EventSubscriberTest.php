@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Test\Symfony;
 
@@ -46,7 +48,7 @@ class EventSubscriberTest extends TestCase
         $transaction = $this->startTransaction();
         BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
 
-        (new EventSubscriber)->onKernelRequest($this->createRequestEvent(HttpKernelInterface::MAIN_REQUEST));
+        (new EventSubscriber())->onKernelRequest($this->createRequestEvent(HttpKernelInterface::MAIN_REQUEST));
 
         $spans = $this->childSpans($transaction);
         $this->assertCount(1, $spans);
@@ -58,14 +60,14 @@ class EventSubscriberTest extends TestCase
         $transaction = $this->startTransaction();
         BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
 
-        (new EventSubscriber)->onKernelRequest($this->createRequestEvent(HttpKernelInterface::SUB_REQUEST));
+        (new EventSubscriber())->onKernelRequest($this->createRequestEvent(HttpKernelInterface::SUB_REQUEST));
 
         $this->assertSame([], $this->childSpans($transaction));
     }
 
     private function startTransaction(): Transaction
     {
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         SentrySdk::init()->setSpan($transaction);
 
@@ -74,7 +76,7 @@ class EventSubscriberTest extends TestCase
 
     private function createRequestEvent(int $requestType): RequestEvent
     {
-        return new RequestEvent($this->createMock(HttpKernelInterface::class), new Request, $requestType);
+        return new RequestEvent($this->createMock(HttpKernelInterface::class), new Request(), $requestType);
     }
 
     /**
@@ -84,6 +86,6 @@ class EventSubscriberTest extends TestCase
     {
         $spans = $transaction->getSpanRecorder()?->getSpans() ?? [];
 
-        return array_values(array_filter($spans, fn (Span $span) => $span !== $transaction));
+        return array_values(array_filter($spans, static fn (Span $span) => $span !== $transaction));
     }
 }

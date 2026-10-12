@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Test\AwsSdk;
 
@@ -34,11 +36,11 @@ class AwsSdkTracerTest extends TestCase
     public function testTracesAwsSdkCallsAsChildSpans(): void
     {
         $hub = SentrySdk::init();
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
 
-        $client = $this->createSqsClient(fn () => new Result([
+        $client = $this->createSqsClient(static fn () => new Result([
             'QueueUrls' => [self::QUEUE_URL],
             '@metadata' => ['headers' => ['x-amzn-requestid' => 'f5c1b5c0-request-id']],
         ]));
@@ -71,7 +73,7 @@ class AwsSdkTracerTest extends TestCase
     {
         $hub = SentrySdk::init();
 
-        $client = $this->createSqsClient(fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
+        $client = $this->createSqsClient(static fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
         AwsSdkTracer::trace($client);
         $result = $client->listQueues();
 
@@ -82,11 +84,11 @@ class AwsSdkTracerTest extends TestCase
     public function testFinishesTheSpanWhenTheCallFails(): void
     {
         $hub = SentrySdk::init();
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
 
-        $client = $this->createSqsClient(fn (CommandInterface $command) => new SqsException('Access denied', $command));
+        $client = $this->createSqsClient(static fn (CommandInterface $command) => new SqsException('Access denied', $command));
         AwsSdkTracer::trace($client);
         try {
             $client->listQueues();
@@ -105,11 +107,11 @@ class AwsSdkTracerTest extends TestCase
     public function testFailedCallsAreMarkedAsErrors(): void
     {
         $hub = SentrySdk::init();
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
 
-        $client = $this->createSqsClient(fn (CommandInterface $command) => new SqsException('Access denied', $command));
+        $client = $this->createSqsClient(static fn (CommandInterface $command) => new SqsException('Access denied', $command));
         AwsSdkTracer::trace($client);
         try {
             $client->listQueues();
@@ -124,15 +126,16 @@ class AwsSdkTracerTest extends TestCase
 
     /**
      * @param class-string<AwsClient> $clientClass
-     * @param array<string, mixed> $params
-     * @param array<string, mixed> $result
-     * @param array<string, mixed> $expectedData
+     * @param array<string, mixed>    $params
+     * @param array<string, mixed>    $result
+     * @param array<string, mixed>    $expectedData
+     *
      * @dataProvider provideAwsResources
      */
     public function testRecordsTheAwsResource(string $clientClass, string $operation, array $params, array $result, array $expectedData): void
     {
         $hub = SentrySdk::init();
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
 
@@ -187,11 +190,11 @@ class AwsSdkTracerTest extends TestCase
         $hub = SentrySdk::init();
         // Any `data_collection` value opts into the SDK's data collection rules
         $hub->bindClient(ClientBuilder::create(['data_collection' => []])->getClient());
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
 
-        $client = $this->createSqsClient(fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
+        $client = $this->createSqsClient(static fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
         AwsSdkTracer::trace($client);
         $client->listQueues();
 
@@ -203,11 +206,11 @@ class AwsSdkTracerTest extends TestCase
     public function testRecordsTheResponseOfFailedCalls(): void
     {
         $hub = SentrySdk::init();
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
 
-        $client = $this->createSqsClient(fn (CommandInterface $command) => new SqsException('Access denied', $command, [
+        $client = $this->createSqsClient(static fn (CommandInterface $command) => new SqsException('Access denied', $command, [
             'request' => new Request('POST', 'https://sqs.eu-west-1.amazonaws.com/'),
             'response' => new Response(403, ['x-amz-id-2' => 'extended-request-id']),
             'request_id' => 'f5c1b5c0-request-id',
@@ -232,10 +235,10 @@ class AwsSdkTracerTest extends TestCase
         $hub = $this->createMock(HubInterface::class);
         $hub->method('getSpan')->willThrowException(new \RuntimeException('Sentry is broken'));
         SentrySdk::setCurrentHub($hub);
-        InternalErrors::setLogger(new NullLogger);
+        InternalErrors::setLogger(new NullLogger());
 
         try {
-            $client = $this->createSqsClient(fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
+            $client = $this->createSqsClient(static fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
             AwsSdkTracer::trace($client);
             $result = $client->listQueues();
         } finally {
@@ -249,13 +252,13 @@ class AwsSdkTracerTest extends TestCase
     public function testConcurrentCallsAreSiblingSpans(): void
     {
         $hub = SentrySdk::init();
-        $transaction = new Transaction(new TransactionContext);
+        $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
         $hub->setSpan($transaction);
 
         $client = $this->createSqsClient(
-            fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]),
-            fn () => new Result(['QueueUrl' => self::QUEUE_URL]),
+            static fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]),
+            static fn () => new Result(['QueueUrl' => self::QUEUE_URL]),
         );
         AwsSdkTracer::trace($client);
         Utils::all([
@@ -288,6 +291,6 @@ class AwsSdkTracerTest extends TestCase
     {
         $spans = $transaction->getSpanRecorder()?->getSpans() ?? [];
 
-        return array_values(array_filter($spans, fn (Span $span) => $span !== $transaction));
+        return array_values(array_filter($spans, static fn (Span $span) => $span !== $transaction));
     }
 }

@@ -1,17 +1,17 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Sentry\Bref\Laravel\Middleware;
 
+use Illuminate\Contracts\Foundation\Application;
 use Sentry\Bref\BrefSpans;
 use Sentry\Bref\InternalErrors;
-use Closure;
-use Illuminate\Contracts\Foundation\Application;
 use Sentry\SentrySdk;
 use Sentry\State\HubInterface;
 use Sentry\Tracing\Transaction;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Throwable;
 
 class SentryApm
 {
@@ -21,9 +21,9 @@ class SentryApm
     }
 
     /**
-     * @param Closure(Request): (Response) $next
+     * @param \Closure(Request): (Response) $next
      */
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, \Closure $next): Response
     {
         if ($this->app->bound(HubInterface::class)) {
             $transaction = SentrySdk::getCurrentHub()->getTransaction();
@@ -52,7 +52,7 @@ class SentryApm
                     $span->setStartTimestamp($end);
                 }
             }
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             InternalErrors::log($e);
         }
     }
