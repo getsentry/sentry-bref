@@ -19,8 +19,10 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use Sentry\Breadcrumb;
 use Sentry\Bref\AwsSdk\AwsSdkTracer;
 use Sentry\Bref\InternalErrors;
+use Sentry\Bref\Test\Support\CapturingTransport;
 use Sentry\ClientBuilder;
 use Sentry\SentrySdk;
 use Sentry\State\HubInterface;
@@ -28,6 +30,9 @@ use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanStatus;
 use Sentry\Tracing\Transaction;
 use Sentry\Tracing\TransactionContext;
+
+use function Sentry\captureException;
+use function Sentry\captureMessage;
 
 class AwsSdkTracerTest extends TestCase
 {
@@ -230,6 +235,57 @@ class AwsSdkTracerTest extends TestCase
         $this->assertSame('extended-request-id', $spans[0]->getData()['aws.extended_request_id']);
     }
 
+    public function testRecordsABreadcrumbForEachCall(): void
+    {
+        // Without tracing: breadcrumbs are useful for errors too
+        $transport = $this->initSdkWithTransport();
+
+        $client = $this->createSqsClient(static fn () => new Result([
+            '@metadata' => ['headers' => ['x-amzn-requestid' => 'f5c1b5c0-request-id']],
+        ]));
+        AwsSdkTracer::trace($client);
+        $client->sendMessage(['QueueUrl' => self::QUEUE_URL, 'MessageBody' => 'hello']);
+        captureMessage('Something went wrong');
+
+        $breadcrumbs = $transport->events[0]->getBreadcrumbs();
+        $this->assertCount(1, $breadcrumbs);
+        $this->assertSame(Breadcrumb::TYPE_HTTP, $breadcrumbs[0]->getType());
+        $this->assertSame('http', $breadcrumbs[0]->getCategory());
+        $this->assertSame(Breadcrumb::LEVEL_INFO, $breadcrumbs[0]->getLevel());
+        $this->assertSame('SQS.SendMessage', $breadcrumbs[0]->getMessage());
+        $this->assertSame([
+            'url' => 'https://sqs.eu-west-1.amazonaws.com/',
+            'method' => 'POST',
+            'status_code' => 200,
+            'aws.request_id' => 'f5c1b5c0-request-id',
+            'aws.sqs.queue.url' => self::QUEUE_URL,
+        ], $breadcrumbs[0]->getMetadata());
+    }
+
+    public function testRecordsABreadcrumbForFailedCalls(): void
+    {
+        $transport = $this->initSdkWithTransport();
+
+        $client = $this->createSqsClient(static fn (CommandInterface $command) => new SqsException('Access denied', $command, [
+            'request' => new Request('POST', 'https://sqs.eu-west-1.amazonaws.com/'),
+            'response' => new Response(403),
+            'request_id' => 'f5c1b5c0-request-id',
+        ]));
+        AwsSdkTracer::trace($client);
+        try {
+            $client->listQueues();
+        } catch (SqsException $e) {
+            captureException($e);
+        }
+
+        $breadcrumbs = $transport->events[0]->getBreadcrumbs();
+        $this->assertCount(1, $breadcrumbs);
+        $this->assertSame(Breadcrumb::LEVEL_WARNING, $breadcrumbs[0]->getLevel());
+        $this->assertSame('SQS.ListQueues', $breadcrumbs[0]->getMessage());
+        $this->assertSame(403, $breadcrumbs[0]->getMetadata()['status_code']);
+        $this->assertSame('f5c1b5c0-request-id', $breadcrumbs[0]->getMetadata()['aws.request_id']);
+    }
+
     public function testNeverBreaksTheAwsCall(): void
     {
         $hub = $this->createMock(HubInterface::class);
@@ -272,6 +328,17 @@ class AwsSdkTracerTest extends TestCase
         $this->assertEquals($transaction->getSpanId(), $spans[1]->getParentSpanId());
         // The current span is restored after the calls
         $this->assertSame($transaction, $hub->getSpan());
+    }
+
+    private function initSdkWithTransport(): CapturingTransport
+    {
+        $transport = new CapturingTransport();
+        SentrySdk::init()->bindClient(ClientBuilder::create([
+            'dsn' => 'https://public@example.com/1',
+            'default_integrations' => false,
+        ])->setTransport($transport)->getClient());
+
+        return $transport;
     }
 
     private function createSqsClient(callable ...$mockedResults): SqsClient

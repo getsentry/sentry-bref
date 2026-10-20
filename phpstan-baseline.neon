@@ -21,7 +21,7 @@ parameters:
 		-
 			message: '#^Cannot access offset ''statusCode'' on mixed\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
-			count: 2
+			count: 1
 			path: src/AwsSdk/AwsSdkTracer.php
 
 		-
@@ -49,31 +49,25 @@ parameters:
 			path: src/AwsSdk/AwsSdkTracer.php
 
 		-
-			message: '#^Parameter \#1 \$statusCode of static method Sentry\\Tracing\\SpanStatus\:\:createFromHttpStatusCode\(\) expects int, mixed given\.$#'
+			message: '#^Parameter \#3 \$uri of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects Psr\\Http\\Message\\UriInterface\|string\|null, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: src/AwsSdk/AwsSdkTracer.php
 
 		-
-			message: '#^Parameter \#2 \$uri of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects Psr\\Http\\Message\\UriInterface\|string\|null, mixed given\.$#'
+			message: '#^Parameter \#4 \$statusCode of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects int\|null, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: src/AwsSdk/AwsSdkTracer.php
 
 		-
-			message: '#^Parameter \#3 \$statusCode of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects int\|null, mixed given\.$#'
+			message: '#^Parameter \#5 \$requestId of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects string\|null, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: src/AwsSdk/AwsSdkTracer.php
 
 		-
-			message: '#^Parameter \#4 \$requestId of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects string\|null, mixed given\.$#'
-			identifier: argument.type
-			count: 1
-			path: src/AwsSdk/AwsSdkTracer.php
-
-		-
-			message: '#^Parameter \#5 \$extendedRequestId of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects string\|null, mixed given\.$#'
+			message: '#^Parameter \#6 \$extendedRequestId of static method Sentry\\Bref\\AwsSdk\\AwsSdkTracer\:\:recordResponse\(\) expects string\|null, mixed given\.$#'
 			identifier: argument.type
 			count: 1
 			path: src/AwsSdk/AwsSdkTracer.php
