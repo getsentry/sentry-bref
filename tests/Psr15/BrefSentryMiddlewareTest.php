@@ -9,8 +9,9 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Sentry\Bref\BrefSpans;
+use Sentry\Bref\CurrentScope;
 use Sentry\Bref\Psr15\BrefSentryMiddleware;
-use Sentry\SentrySdk;
+use Sentry\Bref\Test\Support\TestSdk;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\Transaction;
 use Sentry\Tracing\TransactionContext;
@@ -35,10 +36,10 @@ class BrefSentryMiddlewareTest extends TestCase
 
     public function testLoadsBrefSpansIntoTheCurrentTransaction(): void
     {
-        $hub = SentrySdk::init();
+        TestSdk::init();
         $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
-        $hub->setSpan($transaction);
+        CurrentScope::setSpan($transaction);
         BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
 
         $response = $this->createMock(ResponseInterface::class);
@@ -54,7 +55,7 @@ class BrefSentryMiddlewareTest extends TestCase
 
     public function testCallsTheNextHandlerWithoutATransaction(): void
     {
-        SentrySdk::init();
+        TestSdk::init();
 
         $response = $this->createMock(ResponseInterface::class);
         $handler = $this->createMock(RequestHandlerInterface::class);

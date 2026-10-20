@@ -15,13 +15,12 @@ use Bref\Runtime\ColdStartTracker;
 use Illuminate\Container\Container;
 use Psr\Http\Server\RequestHandlerInterface;
 use Sentry\Bref\BrefSpans;
+use Sentry\Bref\CurrentScope;
 use Sentry\Bref\InternalErrors;
 use Sentry\Bref\Laravel\LaravelBridge;
 use Sentry\Bref\StartupTracking;
 use Sentry\Event;
 use Sentry\EventHint;
-use Sentry\SentrySdk;
-use Sentry\State\Scope;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanContext;
 use Sentry\Tracing\SpanStatus;
@@ -30,6 +29,7 @@ use Sentry\Tracing\TransactionSource;
 
 use function Sentry\captureEvent;
 use function Sentry\captureException;
+use function Sentry\configureScope;
 use function Sentry\startTransaction;
 
 /**
@@ -78,16 +78,15 @@ class BrefSubscriber extends BrefEventSubscriber
                         'faas.name' => $functionName,
                     ]);
 
-                    $hub = SentrySdk::getCurrentHub();
-                    $transaction = $hub->startTransaction($context);
-                    $hub->setSpan($transaction);
+                    $transaction = startTransaction($context);
+                    CurrentScope::setSpan($transaction);
                     $spanContext = new SpanContext();
                     $spanContext->setOp('bref.startup');
                     $spanContext->setStartTimestamp($this->startUpStart);
                     $startupSpan = $transaction->startChild($spanContext);
-                    $hub->setSpan($startupSpan);
+                    CurrentScope::setSpan($startupSpan);
                     $startupSpan->finish();
-                    $hub->setSpan($transaction);
+                    CurrentScope::setSpan($transaction);
                     $transaction->setStatus(SpanStatus::ok());
                     $transaction->finish();
 
@@ -167,7 +166,7 @@ class BrefSubscriber extends BrefEventSubscriber
             $status = $error !== null ? SpanStatus::internalError() : SpanStatus::ok();
             $this->currentInvokeSpan->setStatus($status);
             // The transaction too: that is where Sentry looks for failed invocations
-            SentrySdk::getCurrentHub()->getTransaction()?->setStatus($status);
+            CurrentScope::getTransaction()?->setStatus($status);
 
             $this->stopTransaction($this->currentInvokeSpan);
             $this->currentInvokeSpan = null;
@@ -214,15 +213,14 @@ class BrefSubscriber extends BrefEventSubscriber
         $transaction = startTransaction($transactionContext);
         BrefSpans::loadBrefSpans($transaction);
 
-        $hub = SentrySdk::getCurrentHub();
-        $hub->setSpan($transaction);
+        CurrentScope::setSpan($transaction);
 
         $spanContext = new SpanContext();
         $spanContext->setOp('function');
         $spanContext->setOrigin('auto.function.aws_lambda');
         $spanContext->setDescription(\is_object($handler) ? $handler::class : 'handler');
         $handleSpan = $transaction->startChild($spanContext);
-        $hub->setSpan($handleSpan);
+        CurrentScope::setSpan($handleSpan);
 
         // TODO look at distributed traces
 
@@ -256,7 +254,7 @@ class BrefSubscriber extends BrefEventSubscriber
 
         // Inspired by the Node implementation for Lambda
         // See https://github.com/getsentry/sentry-javascript/blob/da7c95939f9dc36abcf6c4cabd08ad4fdbb7d920/packages/serverless/src/awslambda.ts#L225
-        SentrySdk::getCurrentHub()->configureScope(static function (Scope $scope) use ($functionVersion, $logStreamName, $functionName, $context): void {
+        configureScope(static function ($scope) use ($functionVersion, $logStreamName, $functionName, $context): void {
             $scope->setContext('aws.lambda', [
                 'aws_request_id' => $context->getAwsRequestId(),
                 'function_name' => $functionName,
@@ -276,15 +274,14 @@ class BrefSubscriber extends BrefEventSubscriber
 
     protected function stopTransaction(Span $handleSpan): void
     {
-        $hub = SentrySdk::getCurrentHub();
-        $transaction = $hub->getTransaction();
+        $transaction = CurrentScope::getTransaction();
 
         StartupTracking::storeReferenceToCurrentTransaction();
 
         $handleSpan->finish();
 
-        $hub->setSpan($transaction);
-        $hub->getTransaction()?->finish();
+        CurrentScope::setSpan($transaction);
+        $transaction?->finish();
     }
 
     private function reportError(\Throwable $error, mixed $event): void
