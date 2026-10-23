@@ -1,0 +1,16 @@
+minVersion: 2.31.2
+changelog:
+  policy: auto
+# Composer reads versions from git tags: there is no version to bump in the code
+preReleaseCommand: ''
+artifactProvider:
+  name: none
+targets:
+  - name: github
+  - name: registry
+    sdks:
+      composer:sentry/sentry-bref:
+        name: Sentry Bref
+        sdkName: sentry.php.bref
+        packageUrl: https://packagist.org/packages/sentry/sentry-bref
+        mainDocsUrl: https://docs.sentry.io/platforms/php/guides/bref/
