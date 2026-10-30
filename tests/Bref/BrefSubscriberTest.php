@@ -403,6 +403,7 @@ class BrefSubscriberTest extends TestCase
         $errors = $this->transport->errors();
         $this->assertCount(1, $errors);
         $this->assertSame('The PHP script timed out', $errors[0]->getExceptions()[0]->getValue());
+        $this->assertSame('fake-aws-request-id', $errors[0]->getContexts()['aws.lambda']['aws_request_id']);
         $this->assertSame([
             'url' => 'https://example.com/hello?foo=bar',
             'method' => 'GET',
