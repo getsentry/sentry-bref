@@ -142,6 +142,34 @@ class BrefSubscriberTest extends TestCase
         );
     }
 
+    public function testAddsTheLambdaContextsOfTheCurrentInvocationWhateverTheScope(): void
+    {
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createHandler();
+        $hub = SentrySdk::getCurrentHub();
+        $firstInvocation = new Context('request-1', (time() + 60) * 1000, 'fake-invoked-function-arn', 'trace-id');
+        $secondInvocation = new Context('request-2', (time() + 60) * 1000, 'fake-invoked-function-arn', 'trace-id');
+
+        $subscriber->beforeInvoke($handler, [], $firstInvocation);
+        // sentry-laravel keeps the scope of a failed job until the next job starts
+        $hub->pushScope();
+        $subscriber->afterInvoke($handler, [], $firstInvocation, null, new \RuntimeException('Job failed'));
+
+        $subscriber->beforeInvoke($handler, [], $secondInvocation);
+        $hub->popScope();
+        $hub->pushScope();
+        captureMessage('Second job');
+        $subscriber->afterInvoke($handler, [], $secondInvocation, 'result');
+
+        captureMessage('After the invocation');
+
+        $errors = $this->transport->errors();
+        $this->assertCount(3, $errors);
+        $this->assertSame('request-1', $errors[0]->getContexts()['aws.lambda']['aws_request_id']);
+        $this->assertSame('request-2', $errors[1]->getContexts()['aws.lambda']['aws_request_id']);
+        $this->assertArrayNotHasKey('aws.lambda', $errors[2]->getContexts());
+    }
+
     public function testCapturesTheInvocationError(): void
     {
         $subscriber = $this->createWarmSubscriber();
