@@ -1,0 +1,38 @@
+name: Prepare Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: Version to release
+                required: true
+            force:
+                description: Force a release even when there are release-blockers (optional)
+                required: false
+
+permissions:
+    contents: read
+
+jobs:
+
+    release:
+        name: Release version
+        runs-on: ubuntu-latest
+        steps:
+            -   name: Get auth token
+                id: token
+                uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+                with:
+                    app-id: ${{ vars.SENTRY_RELEASE_BOT_CLIENT_ID }}
+                    private-key: ${{ secrets.SENTRY_RELEASE_BOT_PRIVATE_KEY }}
+            -   uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    token: ${{ steps.token.outputs.token }}
+                    fetch-depth: 0
+            -   name: Prepare release
+                uses: getsentry/craft@924b450ede4af30e30de4821a4b357d676c8df92 # v3
+                env:
+                    GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+                with:
+                    version: ${{ github.event.inputs.version }}
+                    force: ${{ github.event.inputs.force }}

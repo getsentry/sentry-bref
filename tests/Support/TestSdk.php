@@ -14,7 +14,7 @@ final class TestSdk
 {
     public static function init(?ClientInterface $client = null): void
     {
-        if (method_exists(SentrySdk::class, 'getIsolationScope')) {
+        if (self::isV5()) {
             SentrySdk::init($client);
         } else {
             $hub = SentrySdk::init();
@@ -22,5 +22,10 @@ final class TestSdk
                 $hub->bindClient($client);
             }
         }
+    }
+
+    public static function isV5(): bool
+    {
+        return method_exists(SentrySdk::class, 'getIsolationScope');
     }
 }

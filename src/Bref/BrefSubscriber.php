@@ -29,7 +29,6 @@ use Sentry\Tracing\TransactionSource;
 
 use function Sentry\captureEvent;
 use function Sentry\captureException;
-use function Sentry\configureScope;
 use function Sentry\startTransaction;
 
 /**
@@ -40,6 +39,12 @@ class BrefSubscriber extends BrefEventSubscriber
     private ?float $startUpStart = null;
     private ?float $startUpEnd = null;
     private ?Span $currentInvokeSpan = null;
+    private bool $invocationContextStarted = false;
+    /**
+     * The Lambda context of the invocation in progress.
+     */
+    private static ?Context $invocationContext = null;
+    private static bool $eventProcessorRegistered = false;
 
     public function beforeStartup(): void
     {
@@ -118,7 +123,8 @@ class BrefSubscriber extends BrefEventSubscriber
                 return;
             }
 
-            $this->setLambdaContexts($context);
+            $this->startInvocationContext();
+            $this->addLambdaContextsToEvents($context);
 
             // The framework's Sentry SDK creates a better transaction: named after the job or the
             // route, and continuing the trace of the code that dispatched the job or sent the request
@@ -170,6 +176,35 @@ class BrefSubscriber extends BrefEventSubscriber
 
             $this->stopTransaction($this->currentInvokeSpan);
             $this->currentInvokeSpan = null;
+        } catch (\Throwable $e) {
+            InternalErrors::log($e);
+        } finally {
+            $this->endInvocationContext();
+            self::$invocationContext = null;
+        }
+    }
+
+    /**
+     * The process is reused for the next invocations (`BREF_LOOP_MAX`, Octane): what an invocation
+     * adds to the scope (breadcrumbs, tags, user…) must not end up in the events of the next ones.
+     */
+    private function startInvocationContext(): void
+    {
+        CurrentScope::startContext();
+        $this->invocationContextStarted = true;
+    }
+
+    private function endInvocationContext(): void
+    {
+        if (!$this->invocationContextStarted) {
+            return;
+        }
+        $this->invocationContextStarted = false;
+
+        try {
+            // Sends the logs and metrics buffered during the invocation:
+            // Lambda can freeze or stop the environment once the invocation ends
+            CurrentScope::endContext();
         } catch (\Throwable $e) {
             InternalErrors::log($e);
         }
@@ -246,7 +281,36 @@ class BrefSubscriber extends BrefEventSubscriber
         return $handler instanceof OctaneHandler;
     }
 
-    private function setLambdaContexts(Context $context): void
+    /**
+     * Added to the events rather than set on the scope: frameworks juggle with scopes (sentry-laravel
+     * keeps the scope of a failed job until the next job), a scope can hold a previous invocation.
+     */
+    private function addLambdaContextsToEvents(Context $context): void
+    {
+        self::$invocationContext = $context;
+        if (self::$eventProcessorRegistered) {
+            return;
+        }
+
+        CurrentScope::addGlobalEventProcessor(static function (Event $event): Event {
+            $context = self::$invocationContext;
+            if ($context === null) {
+                return $event;
+            }
+
+            // An exception thrown here would drop the event
+            try {
+                self::setLambdaContexts($event, $context);
+            } catch (\Throwable $e) {
+                InternalErrors::log($e);
+            }
+
+            return $event;
+        });
+        self::$eventProcessorRegistered = true;
+    }
+
+    private static function setLambdaContexts(Event $event, Context $context): void
     {
         $functionName = $_SERVER['AWS_LAMBDA_FUNCTION_NAME'] ?? '';
         $functionVersion = $_SERVER['AWS_LAMBDA_FUNCTION_VERSION'] ?? '';
@@ -254,22 +318,21 @@ class BrefSubscriber extends BrefEventSubscriber
 
         // Inspired by the Node implementation for Lambda
         // See https://github.com/getsentry/sentry-javascript/blob/da7c95939f9dc36abcf6c4cabd08ad4fdbb7d920/packages/serverless/src/awslambda.ts#L225
-        configureScope(static function ($scope) use ($functionVersion, $logStreamName, $functionName, $context): void {
-            $scope->setContext('aws.lambda', [
-                'aws_request_id' => $context->getAwsRequestId(),
-                'function_name' => $functionName,
-                'function_version' => $functionVersion,
-                'invoked_function_arn' => $context->getInvokedFunctionArn(),
-                'initialization_type' => $_SERVER['AWS_LAMBDA_INITIALIZATION_TYPE'] ?? '',
-                'remaining_time_in_millis' => $context->getRemainingTimeInMillis(),
-            ]);
-            $logGroupName = $_SERVER['AWS_LAMBDA_LOG_GROUP_NAME'] ?? '';
-            $scope->setContext('aws.cloudwatch.logs', [
-                'log_group' => $logGroupName,
-                'log_stream' => $logStreamName,
-                'url' => 'https://console.aws.amazon.com/cloudwatch/home?region=' . ($_SERVER['AWS_REGION'] ?? '') . '#logsV2:log-groups/log-group/' . urlencode($logGroupName) . '/log-events/' . urlencode($logStreamName) . '?filterPattern="' . $context->getAwsRequestId() . '"',
-            ]);
-        });
+        $event->setContext('aws.lambda', [
+            'aws_request_id' => $context->getAwsRequestId(),
+            'function_name' => $functionName,
+            'function_version' => $functionVersion,
+            'invoked_function_arn' => $context->getInvokedFunctionArn(),
+            'initialization_type' => $_SERVER['AWS_LAMBDA_INITIALIZATION_TYPE'] ?? '',
+            // When the event happens
+            'remaining_time_in_millis' => $context->getRemainingTimeInMillis(),
+        ]);
+        $logGroupName = $_SERVER['AWS_LAMBDA_LOG_GROUP_NAME'] ?? '';
+        $event->setContext('aws.cloudwatch.logs', [
+            'log_group' => $logGroupName,
+            'log_stream' => $logStreamName,
+            'url' => 'https://console.aws.amazon.com/cloudwatch/home?region=' . ($_SERVER['AWS_REGION'] ?? '') . '#logsV2:log-groups/log-group/' . urlencode($logGroupName) . '/log-events/' . urlencode($logStreamName) . '?filterPattern="' . $context->getAwsRequestId() . '"',
+        ]);
     }
 
     protected function stopTransaction(Span $handleSpan): void

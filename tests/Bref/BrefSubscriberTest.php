@@ -22,9 +22,17 @@ use Sentry\Bref\Test\Support\TestSdk;
 use Sentry\ClientBuilder;
 use Sentry\ClientInterface;
 use Sentry\Event;
+use Sentry\EventType;
+use Sentry\SentrySdk;
+use Sentry\State\Scope;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanStatus;
 use Sentry\Tracing\TransactionSource;
+
+use function Sentry\addBreadcrumb;
+use function Sentry\captureMessage;
+use function Sentry\configureScope;
+use function Sentry\logger;
 
 class BrefSubscriberTest extends TestCase
 {
@@ -135,6 +143,37 @@ class BrefSubscriberTest extends TestCase
         );
     }
 
+    public function testAddsTheLambdaContextsOfTheCurrentInvocationWhateverTheScope(): void
+    {
+        if (TestSdk::isV5()) {
+            $this->markTestSkipped('sentry-laravel, which pushes and pops scopes of the hub, does not support sentry/sentry 5');
+        }
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createHandler();
+        $hub = SentrySdk::getCurrentHub();
+        $firstInvocation = new Context('request-1', (time() + 60) * 1000, 'fake-invoked-function-arn', 'trace-id');
+        $secondInvocation = new Context('request-2', (time() + 60) * 1000, 'fake-invoked-function-arn', 'trace-id');
+
+        $subscriber->beforeInvoke($handler, [], $firstInvocation);
+        // sentry-laravel keeps the scope of a failed job until the next job starts
+        $hub->pushScope();
+        $subscriber->afterInvoke($handler, [], $firstInvocation, null, new \RuntimeException('Job failed'));
+
+        $subscriber->beforeInvoke($handler, [], $secondInvocation);
+        $hub->popScope();
+        $hub->pushScope();
+        captureMessage('Second job');
+        $subscriber->afterInvoke($handler, [], $secondInvocation, 'result');
+
+        captureMessage('After the invocation');
+
+        $errors = $this->transport->errors();
+        $this->assertCount(3, $errors);
+        $this->assertSame('request-1', $errors[0]->getContexts()['aws.lambda']['aws_request_id']);
+        $this->assertSame('request-2', $errors[1]->getContexts()['aws.lambda']['aws_request_id']);
+        $this->assertArrayNotHasKey('aws.lambda', $errors[2]->getContexts());
+    }
+
     public function testCapturesTheInvocationError(): void
     {
         $subscriber = $this->createWarmSubscriber();
@@ -153,6 +192,67 @@ class BrefSubscriberTest extends TestCase
         $this->assertSame($transaction->getContexts()['trace']['trace_id'], $errors[0]->getContexts()['trace']['trace_id']);
         $this->assertSame('internal_error', $transaction->getContexts()['trace']['status']);
         $this->assertEquals(SpanStatus::internalError(), $transaction->getSpans()[0]->getStatus());
+    }
+
+    public function testIsolatesTheScopeOfEachInvocation(): void
+    {
+        // Set when the application boots
+        configureScope(static fn (Scope $scope) => $scope->setTag('app', 'my-app'));
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createHandler();
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        configureScope(static fn (Scope $scope) => $scope->setTag('order', '1')->setUser(['id' => 'user-1']));
+        addBreadcrumb('test', 'First invocation');
+        $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        captureMessage('Second invocation');
+        $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
+
+        $error = $this->transport->errors()[0];
+        $this->assertSame(['app' => 'my-app'], $error->getTags());
+        $this->assertNull($error->getUser());
+        $this->assertSame([], $error->getBreadcrumbs());
+    }
+
+    public function testEventsSentThroughTheHubOfTheApplicationArePartOfTheInvocation(): void
+    {
+        if (TestSdk::isV5()) {
+            $this->markTestSkipped('There is no hub with sentry/sentry 5');
+        }
+        // e.g. Laravel's container, or a Monolog handler created when the application boots
+        $applicationHub = SentrySdk::getCurrentHub();
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createHandler();
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        $applicationHub->captureMessage('Logged error');
+        $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
+
+        $error = $this->transport->errors()[0];
+        $this->assertSame('fake-aws-request-id', $error->getContexts()['aws.lambda']['aws_request_id']);
+        $this->assertSame($this->singleTransaction()->getContexts()['trace']['trace_id'], $error->getContexts()['trace']['trace_id']);
+    }
+
+    public function testSendsTheLogsAtTheEndOfTheInvocation(): void
+    {
+        TestSdk::init(ClientBuilder::create([
+            'dsn' => 'https://public@example.com/1',
+            'default_integrations' => false,
+            'enable_logs' => true,
+        ])->setTransport($this->transport)->getClient());
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createHandler();
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        logger()->info('Hello');
+        $this->assertCount(0, $this->logs());
+        $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
+
+        $logs = $this->logs();
+        $this->assertCount(1, $logs);
+        $this->assertSame('Hello', $logs[0]->getLogs()[0]->getBody());
     }
 
     public function testAddsTheColdStartToTheFirstInvocation(): void
@@ -412,6 +512,14 @@ class BrefSubscriberTest extends TestCase
             'headers' => ['host' => 'example.com'],
             'requestContext' => ['http' => ['method' => 'GET']],
         ];
+    }
+
+    /**
+     * @return Event[]
+     */
+    private function logs(): array
+    {
+        return array_values(array_filter($this->transport->events, static fn (Event $event) => $event->getType() === EventType::logs()));
     }
 
     private function singleTransaction(): Event

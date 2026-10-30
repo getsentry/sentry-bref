@@ -41,8 +41,8 @@ abstract class AwsSdkTracer
                     // e.g. `SQS`, `DynamoDB`, `S3`
                     $serviceId = $awsClient->getApi()->getServiceId();
                     $call = [
-                        // e.g. `SQS.SendMessage`
-                        'operation' => $serviceId . '.' . $command->getName(),
+                        // e.g. `SQS.SendMessage`, or `SecretsManager.GetSecretValue` for the `Secrets Manager` service
+                        'operation' => str_replace(' ', '', $serviceId) . '.' . $command->getName(),
                         // From the API definition: the request is not built yet at this step
                         'method' => $awsClient->getApi()->getOperation($command->getName())->getHttp()['method'] ?? null,
                         'resource' => self::resourceData($serviceId, $command),

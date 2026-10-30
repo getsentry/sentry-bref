@@ -17,6 +17,7 @@ parameters:
                 - arguments.count
                 - staticMethod.void
                 - method.nonObject
+                - argument.type
             paths:
                 - src/CurrentScope.php
                 - tests/Support/TestSdk.php

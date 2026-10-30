@@ -69,6 +69,27 @@ class AwsSdkTracerTest extends TestCase
             'http.response.status_code' => 200,
             'aws.request_id' => 'f5c1b5c0-request-id',
         ], $spans[0]->getData());
+    }
+
+    public function testRemovesSpacesFromTheServiceInTheOperation(): void
+    {
+        TestSdk::init();
+        $transaction = new Transaction(new TransactionContext());
+        $transaction->initSpanRecorder();
+        CurrentScope::setSpan($transaction);
+
+        $client = new SecretsManagerClient([
+            'region' => 'eu-west-1',
+            'credentials' => false,
+            'handler' => new MockHandler([new Result([])]),
+        ]);
+        AwsSdkTracer::trace($client);
+        $client->getSecretValue(['SecretId' => 'my-secret']);
+
+        $spans = $this->childSpans($transaction);
+        $this->assertCount(1, $spans);
+        $this->assertSame('SecretsManager.GetSecretValue', $spans[0]->getDescription());
+        $this->assertSame('Secrets Manager', $spans[0]->getData()['rpc.service']);
         $this->assertEquals(SpanStatus::ok(), $spans[0]->getStatus());
         $this->assertNotNull($spans[0]->getEndTimestamp());
         // The current span is restored after the call
