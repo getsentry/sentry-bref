@@ -20,11 +20,18 @@ use Sentry\Bref\InternalErrors;
 use Sentry\Bref\Test\Support\CapturingTransport;
 use Sentry\ClientBuilder;
 use Sentry\Event;
+use Sentry\EventType;
 use Sentry\SentrySdk;
 use Sentry\State\HubInterface;
+use Sentry\State\Scope;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanStatus;
 use Sentry\Tracing\TransactionSource;
+
+use function Sentry\addBreadcrumb;
+use function Sentry\captureMessage;
+use function Sentry\configureScope;
+use function Sentry\logger;
 
 class BrefSubscriberTest extends TestCase
 {
@@ -153,6 +160,64 @@ class BrefSubscriberTest extends TestCase
         $this->assertSame($transaction->getContexts()['trace']['trace_id'], $errors[0]->getContexts()['trace']['trace_id']);
         $this->assertSame('internal_error', $transaction->getContexts()['trace']['status']);
         $this->assertEquals(SpanStatus::internalError(), $transaction->getSpans()[0]->getStatus());
+    }
+
+    public function testIsolatesTheScopeOfEachInvocation(): void
+    {
+        // Set when the application boots
+        configureScope(static fn (Scope $scope) => $scope->setTag('app', 'my-app'));
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createHandler();
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        configureScope(static fn (Scope $scope) => $scope->setTag('order', '1')->setUser(['id' => 'user-1']));
+        addBreadcrumb('test', 'First invocation');
+        $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        captureMessage('Second invocation');
+        $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
+
+        $error = $this->transport->errors()[0];
+        $this->assertSame(['app' => 'my-app'], $error->getTags());
+        $this->assertNull($error->getUser());
+        $this->assertSame([], $error->getBreadcrumbs());
+    }
+
+    public function testEventsSentThroughTheHubOfTheApplicationArePartOfTheInvocation(): void
+    {
+        // e.g. Laravel's container, or a Monolog handler created when the application boots
+        $applicationHub = SentrySdk::getCurrentHub();
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createHandler();
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        $applicationHub->captureMessage('Logged error');
+        $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
+
+        $error = $this->transport->errors()[0];
+        $this->assertSame('fake-aws-request-id', $error->getContexts()['aws.lambda']['aws_request_id']);
+        $this->assertSame($this->singleTransaction()->getContexts()['trace']['trace_id'], $error->getContexts()['trace']['trace_id']);
+    }
+
+    public function testSendsTheLogsAtTheEndOfTheInvocation(): void
+    {
+        SentrySdk::getCurrentHub()->bindClient(ClientBuilder::create([
+            'dsn' => 'https://public@example.com/1',
+            'default_integrations' => false,
+            'enable_logs' => true,
+        ])->setTransport($this->transport)->getClient());
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createHandler();
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        logger()->info('Hello');
+        $this->assertCount(0, $this->logs());
+        $subscriber->afterInvoke($handler, [], Context::fake(), 'result');
+
+        $logs = $this->logs();
+        $this->assertCount(1, $logs);
+        $this->assertSame('Hello', $logs[0]->getLogs()[0]->getBody());
     }
 
     public function testAddsTheColdStartToTheFirstInvocation(): void
@@ -412,6 +477,14 @@ class BrefSubscriberTest extends TestCase
             'headers' => ['host' => 'example.com'],
             'requestContext' => ['http' => ['method' => 'GET']],
         ];
+    }
+
+    /**
+     * @return Event[]
+     */
+    private function logs(): array
+    {
+        return array_values(array_filter($this->transport->events, static fn (Event $event) => $event->getType() === EventType::logs()));
     }
 
     private function singleTransaction(): Event
