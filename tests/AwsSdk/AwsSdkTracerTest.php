@@ -21,11 +21,12 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Sentry\Breadcrumb;
 use Sentry\Bref\AwsSdk\AwsSdkTracer;
+use Sentry\Bref\CurrentScope;
 use Sentry\Bref\InternalErrors;
 use Sentry\Bref\Test\Support\CapturingTransport;
+use Sentry\Bref\Test\Support\TestSdk;
 use Sentry\ClientBuilder;
-use Sentry\SentrySdk;
-use Sentry\State\HubInterface;
+use Sentry\DataCollection\DataCollectionPolicy;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanStatus;
 use Sentry\Tracing\Transaction;
@@ -40,10 +41,10 @@ class AwsSdkTracerTest extends TestCase
 
     public function testTracesAwsSdkCallsAsChildSpans(): void
     {
-        $hub = SentrySdk::init();
+        TestSdk::init();
         $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
-        $hub->setSpan($transaction);
+        CurrentScope::setSpan($transaction);
 
         $client = $this->createSqsClient(static fn () => new Result([
             'QueueUrls' => [self::QUEUE_URL],
@@ -72,10 +73,10 @@ class AwsSdkTracerTest extends TestCase
 
     public function testRemovesSpacesFromTheServiceInTheOperation(): void
     {
-        $hub = SentrySdk::init();
+        TestSdk::init();
         $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
-        $hub->setSpan($transaction);
+        CurrentScope::setSpan($transaction);
 
         $client = new SecretsManagerClient([
             'region' => 'eu-west-1',
@@ -92,27 +93,27 @@ class AwsSdkTracerTest extends TestCase
         $this->assertEquals(SpanStatus::ok(), $spans[0]->getStatus());
         $this->assertNotNull($spans[0]->getEndTimestamp());
         // The current span is restored after the call
-        $this->assertSame($transaction, $hub->getSpan());
+        $this->assertSame($transaction, CurrentScope::getSpan());
     }
 
     public function testDoesNotTraceWithoutACurrentSpan(): void
     {
-        $hub = SentrySdk::init();
+        TestSdk::init();
 
         $client = $this->createSqsClient(static fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
         AwsSdkTracer::trace($client);
         $result = $client->listQueues();
 
         $this->assertSame([self::QUEUE_URL], $result->get('QueueUrls'));
-        $this->assertNull($hub->getSpan());
+        $this->assertNull(CurrentScope::getSpan());
     }
 
     public function testFinishesTheSpanWhenTheCallFails(): void
     {
-        $hub = SentrySdk::init();
+        TestSdk::init();
         $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
-        $hub->setSpan($transaction);
+        CurrentScope::setSpan($transaction);
 
         $client = $this->createSqsClient(static fn (CommandInterface $command) => new SqsException('Access denied', $command));
         AwsSdkTracer::trace($client);
@@ -127,15 +128,15 @@ class AwsSdkTracerTest extends TestCase
         $this->assertCount(1, $spans);
         $this->assertNotNull($spans[0]->getEndTimestamp());
         // The current span is restored after the call
-        $this->assertSame($transaction, $hub->getSpan());
+        $this->assertSame($transaction, CurrentScope::getSpan());
     }
 
     public function testFailedCallsAreMarkedAsErrors(): void
     {
-        $hub = SentrySdk::init();
+        TestSdk::init();
         $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
-        $hub->setSpan($transaction);
+        CurrentScope::setSpan($transaction);
 
         $client = $this->createSqsClient(static fn (CommandInterface $command) => new SqsException('Access denied', $command));
         AwsSdkTracer::trace($client);
@@ -160,10 +161,10 @@ class AwsSdkTracerTest extends TestCase
      */
     public function testRecordsTheAwsResource(string $clientClass, string $operation, array $params, array $result, array $expectedData): void
     {
-        $hub = SentrySdk::init();
+        TestSdk::init();
         $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
-        $hub->setSpan($transaction);
+        CurrentScope::setSpan($transaction);
 
         $client = new $clientClass([
             'region' => 'eu-west-1',
@@ -213,12 +214,14 @@ class AwsSdkTracerTest extends TestCase
 
     public function testRecordsTheFullUrlWhenDataCollectionAllowsIt(): void
     {
-        $hub = SentrySdk::init();
+        if (!class_exists(DataCollectionPolicy::class)) {
+            $this->markTestSkipped('Data collection is not on the 5.x branch of sentry/sentry yet');
+        }
         // Any `data_collection` value opts into the SDK's data collection rules
-        $hub->bindClient(ClientBuilder::create(['data_collection' => []])->getClient());
+        TestSdk::init(ClientBuilder::create(['data_collection' => []])->getClient());
         $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
-        $hub->setSpan($transaction);
+        CurrentScope::setSpan($transaction);
 
         $client = $this->createSqsClient(static fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
         AwsSdkTracer::trace($client);
@@ -231,10 +234,10 @@ class AwsSdkTracerTest extends TestCase
 
     public function testRecordsTheResponseOfFailedCalls(): void
     {
-        $hub = SentrySdk::init();
+        TestSdk::init();
         $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
-        $hub->setSpan($transaction);
+        CurrentScope::setSpan($transaction);
 
         $client = $this->createSqsClient(static fn (CommandInterface $command) => new SqsException('Access denied', $command, [
             'request' => new Request('POST', 'https://sqs.eu-west-1.amazonaws.com/'),
@@ -309,9 +312,10 @@ class AwsSdkTracerTest extends TestCase
 
     public function testNeverBreaksTheAwsCall(): void
     {
-        $hub = $this->createMock(HubInterface::class);
-        $hub->method('getSpan')->willThrowException(new \RuntimeException('Sentry is broken'));
-        SentrySdk::setCurrentHub($hub);
+        $parent = $this->createMock(Span::class);
+        $parent->method('startChild')->willThrowException(new \RuntimeException('Sentry is broken'));
+        TestSdk::init();
+        CurrentScope::setSpan($parent);
         InternalErrors::setLogger(new NullLogger());
 
         try {
@@ -320,7 +324,7 @@ class AwsSdkTracerTest extends TestCase
             $result = $client->listQueues();
         } finally {
             InternalErrors::setLogger(null);
-            SentrySdk::init();
+            TestSdk::init();
         }
 
         $this->assertSame([self::QUEUE_URL], $result->get('QueueUrls'));
@@ -328,10 +332,10 @@ class AwsSdkTracerTest extends TestCase
 
     public function testConcurrentCallsAreSiblingSpans(): void
     {
-        $hub = SentrySdk::init();
+        TestSdk::init();
         $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
-        $hub->setSpan($transaction);
+        CurrentScope::setSpan($transaction);
 
         $client = $this->createSqsClient(
             static fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]),
@@ -348,13 +352,13 @@ class AwsSdkTracerTest extends TestCase
         $this->assertEquals($transaction->getSpanId(), $spans[0]->getParentSpanId());
         $this->assertEquals($transaction->getSpanId(), $spans[1]->getParentSpanId());
         // The current span is restored after the calls
-        $this->assertSame($transaction, $hub->getSpan());
+        $this->assertSame($transaction, CurrentScope::getSpan());
     }
 
     private function initSdkWithTransport(): CapturingTransport
     {
         $transport = new CapturingTransport();
-        SentrySdk::init()->bindClient(ClientBuilder::create([
+        TestSdk::init(ClientBuilder::create([
             'dsn' => 'https://public@example.com/1',
             'default_integrations' => false,
         ])->setTransport($transport)->getClient());

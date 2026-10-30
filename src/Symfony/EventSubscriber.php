@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Sentry\Bref\Symfony;
 
 use Sentry\Bref\BrefSpans;
-use Sentry\SentrySdk;
+use Sentry\Bref\CurrentScope;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 
@@ -26,7 +26,7 @@ class EventSubscriber implements EventSubscriberInterface
             return;
         }
 
-        $transaction = SentrySdk::getCurrentHub()->getTransaction();
+        $transaction = CurrentScope::getTransaction();
         if ($transaction) {
             BrefSpans::loadBrefSpans($transaction);
         }

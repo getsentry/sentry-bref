@@ -6,3 +6,19 @@ parameters:
     paths:
         - src
         - tests
+    ignoreErrors:
+        # These classes switch between sentry/sentry 4 and 5: PHPStan only sees one version,
+        # so the code for the other version calls methods that do not exist
+        -
+            identifiers:
+                - staticMethod.notFound
+                - function.impossibleType
+                - function.alreadyNarrowedType
+                - arguments.count
+                - staticMethod.void
+                - method.nonObject
+                - argument.type
+            paths:
+                - src/CurrentScope.php
+                - tests/Support/TestSdk.php
+            reportUnmatched: false

@@ -18,11 +18,12 @@ use Psr\Log\LogLevel;
 use Sentry\Bref\Bref\BrefSubscriber;
 use Sentry\Bref\InternalErrors;
 use Sentry\Bref\Test\Support\CapturingTransport;
+use Sentry\Bref\Test\Support\TestSdk;
 use Sentry\ClientBuilder;
+use Sentry\ClientInterface;
 use Sentry\Event;
 use Sentry\EventType;
 use Sentry\SentrySdk;
-use Sentry\State\HubInterface;
 use Sentry\State\Scope;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanStatus;
@@ -60,7 +61,7 @@ class BrefSubscriberTest extends TestCase
         $_SERVER['AWS_LAMBDA_INITIALIZATION_TYPE'] = 'on-demand';
 
         $this->transport = new CapturingTransport();
-        SentrySdk::init()->bindClient(ClientBuilder::create([
+        TestSdk::init(ClientBuilder::create([
             'dsn' => 'https://public@example.com/1',
             'traces_sample_rate' => 1.0,
             'default_integrations' => false,
@@ -74,7 +75,7 @@ class BrefSubscriberTest extends TestCase
         }
         $_SERVER = $this->server;
         $this->deleteFiles();
-        SentrySdk::init();
+        TestSdk::init();
     }
 
     public function testCreatesATransactionForEachInvocation(): void
@@ -144,6 +145,9 @@ class BrefSubscriberTest extends TestCase
 
     public function testAddsTheLambdaContextsOfTheCurrentInvocationWhateverTheScope(): void
     {
+        if (TestSdk::isV5()) {
+            $this->markTestSkipped('sentry-laravel, which pushes and pops scopes of the hub, does not support sentry/sentry 5');
+        }
         $subscriber = $this->createWarmSubscriber();
         $handler = $this->createHandler();
         $hub = SentrySdk::getCurrentHub();
@@ -214,6 +218,9 @@ class BrefSubscriberTest extends TestCase
 
     public function testEventsSentThroughTheHubOfTheApplicationArePartOfTheInvocation(): void
     {
+        if (TestSdk::isV5()) {
+            $this->markTestSkipped('There is no hub with sentry/sentry 5');
+        }
         // e.g. Laravel's container, or a Monolog handler created when the application boots
         $applicationHub = SentrySdk::getCurrentHub();
         $subscriber = $this->createWarmSubscriber();
@@ -230,7 +237,7 @@ class BrefSubscriberTest extends TestCase
 
     public function testSendsTheLogsAtTheEndOfTheInvocation(): void
     {
-        SentrySdk::getCurrentHub()->bindClient(ClientBuilder::create([
+        TestSdk::init(ClientBuilder::create([
             'dsn' => 'https://public@example.com/1',
             'default_integrations' => false,
             'enable_logs' => true,
@@ -426,9 +433,9 @@ class BrefSubscriberTest extends TestCase
 
     public function testAFailureBeforeTheInvocationDoesNotFailTheInvocation(): void
     {
-        $hub = $this->createMock(HubInterface::class);
-        $hub->method('startTransaction')->willThrowException(new \RuntimeException('Sentry is broken'));
-        SentrySdk::setCurrentHub($hub);
+        $client = $this->createMock(ClientInterface::class);
+        $client->method('getOptions')->willThrowException(new \RuntimeException('Sentry is broken'));
+        TestSdk::init($client);
         $subscriber = $this->createWarmSubscriber();
         $handler = $this->createHandler();
 
