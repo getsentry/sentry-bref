@@ -21,6 +21,7 @@ use Sentry\Bref\StartupTracking;
 use Sentry\Event;
 use Sentry\EventHint;
 use Sentry\SentrySdk;
+use Sentry\State\HubInterface;
 use Sentry\State\Scope;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanContext;
@@ -40,6 +41,7 @@ class BrefSubscriber extends BrefEventSubscriber
     private ?float $startUpStart = null;
     private ?float $startUpEnd = null;
     private ?Span $currentInvokeSpan = null;
+    private ?HubInterface $invocationHub = null;
 
     public function beforeStartup(): void
     {
@@ -119,6 +121,7 @@ class BrefSubscriber extends BrefEventSubscriber
                 return;
             }
 
+            $this->startInvocationContext();
             $this->setLambdaContexts($context);
 
             // The framework's Sentry SDK creates a better transaction: named after the job or the
@@ -171,6 +174,40 @@ class BrefSubscriber extends BrefEventSubscriber
 
             $this->stopTransaction($this->currentInvokeSpan);
             $this->currentInvokeSpan = null;
+        } catch (\Throwable $e) {
+            InternalErrors::log($e);
+        } finally {
+            $this->endInvocationContext();
+        }
+    }
+
+    /**
+     * The process is reused for the next invocations (`BREF_LOOP_MAX`, Octane): what an invocation
+     * adds to the scope (breadcrumbs, tags, user…) must not end up in the events of the next ones.
+     */
+    private function startInvocationContext(): void
+    {
+        // The same hub, not a new one: the hub is often kept since the application booted
+        // (Laravel's container, Monolog handlers…), the events it sends must be part of the invocation
+        $hub = SentrySdk::getCurrentHub();
+        SentrySdk::startContext($hub);
+        $hub->pushScope();
+        $this->invocationHub = $hub;
+    }
+
+    private function endInvocationContext(): void
+    {
+        $hub = $this->invocationHub;
+        if ($hub === null) {
+            return;
+        }
+        $this->invocationHub = null;
+
+        try {
+            $hub->popScope();
+            // Sends the logs and metrics buffered during the invocation:
+            // Lambda can freeze or stop the environment once the invocation ends
+            SentrySdk::endContext();
         } catch (\Throwable $e) {
             InternalErrors::log($e);
         }
