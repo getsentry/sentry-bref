@@ -1,4 +1,4 @@
-minVersion: 2.31.2
+minVersion: 3.9.0
 changelog:
   policy: auto
 # Composer reads versions from git tags: there is no version to bump in the code
