@@ -76,7 +76,7 @@ parameters:
 			message: '#^Binary operation "\." between ''https\://console\.aws…'' and mixed results in an error\.$#'
 			identifier: binaryOp.invalid
 			count: 1
-			path: src/Bref/BrefSubscriber.php
+			path: src/LambdaContext.php
 
 		-
 			message: '#^Cannot call method get\(\) on mixed\.$#'
@@ -94,7 +94,7 @@ parameters:
 			message: '#^Parameter \#1 \$string of function urlencode expects string, mixed given\.$#'
 			identifier: argument.type
 			count: 2
-			path: src/Bref/BrefSubscriber.php
+			path: src/LambdaContext.php
 
 		-
 			message: '#^Parameter \#1 \$tags of method Sentry\\Tracing\\SpanContext\:\:setTags\(\) expects array\<string, string\>, array\<string, mixed\> given\.$#'
