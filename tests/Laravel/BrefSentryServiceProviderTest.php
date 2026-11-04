@@ -10,8 +10,9 @@ use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Sentry\Bref\BrefSpans;
+use Sentry\Bref\CurrentScope;
 use Sentry\Bref\Laravel\BrefSentryServiceProvider;
-use Sentry\SentrySdk;
+use Sentry\Bref\Test\Support\TestSdk;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\Transaction;
 use Sentry\Tracing\TransactionContext;
@@ -37,7 +38,7 @@ class BrefSentryServiceProviderTest extends TestCase
         }
         Facade::clearResolvedInstances();
         Facade::setFacadeApplication(null);
-        SentrySdk::init();
+        TestSdk::init();
     }
 
     public function testAddsBrefSpansToTheTransactionOfTheJob(): void
@@ -50,7 +51,8 @@ class BrefSentryServiceProviderTest extends TestCase
         // sentry-laravel started the job's transaction
         $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
-        SentrySdk::init()->setSpan($transaction);
+        TestSdk::init();
+        CurrentScope::setSpan($transaction);
         BrefSpans::storeSpan('lambda.cold-start', 'Lambda cold start', microtime(true) - 1, microtime(true));
 
         $app['events']->dispatch(new JobProcessing('sqs', $this->createMock(Job::class)));

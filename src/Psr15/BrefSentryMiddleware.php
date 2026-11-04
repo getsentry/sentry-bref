@@ -9,7 +9,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Sentry\Bref\BrefSpans;
-use Sentry\SentrySdk;
+use Sentry\Bref\CurrentScope;
 
 /**
  * Middleware that loads the cold start span (if there is one) into the current Sentry transaction.
@@ -20,7 +20,7 @@ class BrefSentryMiddleware implements MiddlewareInterface
 {
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        $transaction = SentrySdk::getCurrentHub()->getTransaction();
+        $transaction = CurrentScope::getTransaction();
 
         if ($transaction) {
             BrefSpans::loadBrefSpans($transaction);

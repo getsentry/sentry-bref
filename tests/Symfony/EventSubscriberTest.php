@@ -6,8 +6,9 @@ namespace Sentry\Bref\Test\Symfony;
 
 use PHPUnit\Framework\TestCase;
 use Sentry\Bref\BrefSpans;
+use Sentry\Bref\CurrentScope;
 use Sentry\Bref\Symfony\EventSubscriber;
-use Sentry\SentrySdk;
+use Sentry\Bref\Test\Support\TestSdk;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\Transaction;
 use Sentry\Tracing\TransactionContext;
@@ -69,7 +70,8 @@ class EventSubscriberTest extends TestCase
     {
         $transaction = new Transaction(new TransactionContext());
         $transaction->initSpanRecorder();
-        SentrySdk::init()->setSpan($transaction);
+        TestSdk::init();
+        CurrentScope::setSpan($transaction);
 
         return $transaction;
     }

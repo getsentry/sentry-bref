@@ -13,11 +13,11 @@ use GuzzleHttp\Psr7\Uri;
 use Psr\Http\Message\RequestInterface; // phpcs:ignore
 use Psr\Http\Message\UriInterface;
 use Sentry\Breadcrumb;
+use Sentry\Bref\CurrentScope;
 use Sentry\Bref\InternalErrors;
 use Sentry\DataCollection\DataCollectionPolicy;
 use Sentry\DataCollection\HttpMessageType;
 use Sentry\DataCollection\HttpUrlCollector;
-use Sentry\SentrySdk;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanContext;
 use Sentry\Tracing\SpanStatus;
@@ -48,7 +48,7 @@ abstract class AwsSdkTracer
                         'resource' => self::resourceData($serviceId, $command),
                     ];
 
-                    $parent = SentrySdk::getCurrentHub()->getSpan();
+                    $parent = CurrentScope::getSpan();
                     // Check if we have a parent span (this is the case if we started a transaction earlier)
                     if ($parent !== null) {
                         $context = new SpanContext();
@@ -183,7 +183,7 @@ abstract class AwsSdkTracer
         // Like the HTTP integrations of the Sentry SDK, the full URL is only collected
         // when the SDK's `data_collection` option allows it
         $fullUrl = $uri !== null
-            ? HttpUrlCollector::collect(DataCollectionPolicy::fromHub(SentrySdk::getCurrentHub()), HttpMessageType::outgoingRequest(), $uri)
+            ? HttpUrlCollector::collect(DataCollectionPolicy::fromOptions(CurrentScope::getOptions()), HttpMessageType::outgoingRequest(), $uri)
             : null;
 
         if ($span !== null) {

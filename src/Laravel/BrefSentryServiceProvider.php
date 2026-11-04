@@ -8,8 +8,8 @@ use Illuminate\Contracts\Http\Kernel as HttpKernelInterface;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\ServiceProvider;
 use Sentry\Bref\BrefSpans;
+use Sentry\Bref\CurrentScope;
 use Sentry\Bref\Laravel\Middleware\SentryApm;
-use Sentry\SentrySdk;
 
 class BrefSentryServiceProvider extends ServiceProvider
 {
@@ -25,7 +25,7 @@ class BrefSentryServiceProvider extends ServiceProvider
         // which creates the job's transaction
         $this->app->booted(function () {
             $this->app['events']->listen(JobProcessing::class, static function (): void {
-                $transaction = SentrySdk::getCurrentHub()->getTransaction();
+                $transaction = CurrentScope::getTransaction();
                 if ($transaction) {
                     // e.g. the cold start, when the job is the first one processed by the Lambda instance
                     BrefSpans::loadBrefSpans($transaction);

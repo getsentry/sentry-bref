@@ -8,8 +8,8 @@ use Bref\Context\Context;
 use PHPUnit\Framework\TestCase;
 use Sentry\Bref\LambdaContext;
 use Sentry\Bref\Test\Support\CapturingTransport;
+use Sentry\Bref\Test\Support\TestSdk;
 use Sentry\ClientBuilder;
-use Sentry\SentrySdk;
 
 use function Sentry\captureMessage;
 
@@ -20,7 +20,7 @@ class LambdaContextTest extends TestCase
     protected function setUp(): void
     {
         $this->transport = new CapturingTransport();
-        SentrySdk::init()->bindClient(ClientBuilder::create([
+        TestSdk::init(ClientBuilder::create([
             'dsn' => 'https://public@example.com/1',
             'default_integrations' => false,
         ])->setTransport($this->transport)->getClient());
@@ -30,7 +30,7 @@ class LambdaContextTest extends TestCase
     {
         unset($_SERVER['LAMBDA_INVOCATION_CONTEXT']);
         LambdaContext::end();
-        SentrySdk::init();
+        TestSdk::init();
     }
 
     public function testAddsTheInvocationThatBrefPassesToTheProcess(): void

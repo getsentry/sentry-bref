@@ -6,7 +6,6 @@ namespace Sentry\Bref;
 
 use Bref\Context\Context;
 use Sentry\Event;
-use Sentry\State\Scope;
 
 /**
  * Adds the Lambda context of the invocation in progress to the events.
@@ -28,8 +27,8 @@ class LambdaContext
             return;
         }
 
-        // Global: applies to the events of every hub and scope
-        Scope::addGlobalEventProcessor(static function (Event $event): Event {
+        // Global: applies to the events of every scope (and hub with sentry/sentry 4)
+        CurrentScope::addGlobalEventProcessor(static function (Event $event): Event {
             $context = self::$invocation;
             if ($context === null) {
                 return $event;

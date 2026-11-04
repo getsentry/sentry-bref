@@ -40,7 +40,7 @@
         "bref/bref": "^3.0.13",
         "bref/logger": "^1 | ^2",
         "psr/http-server-middleware": "^1.0",
-        "sentry/sentry": "^4.33"
+        "sentry/sentry": "^4.33 | ^5.0"
     },
     "require-dev": {
         "aws/aws-sdk-php": "^3",
