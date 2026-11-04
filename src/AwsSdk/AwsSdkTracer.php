@@ -181,9 +181,8 @@ abstract class AwsSdkTracer
     ): void {
         $host = $uri !== null ? parse_url((string) $uri, \PHP_URL_HOST) : null;
         // Like the HTTP integrations of the Sentry SDK, the full URL is only collected
-        // when the SDK's `data_collection` option allows it.
-        // `class_exists()`: data collection is not on the `5.x` branch of sentry/sentry yet
-        $fullUrl = $uri !== null && class_exists(DataCollectionPolicy::class)
+        // when the SDK's `data_collection` option allows it
+        $fullUrl = $uri !== null
             ? HttpUrlCollector::collect(DataCollectionPolicy::fromOptions(CurrentScope::getOptions()), HttpMessageType::outgoingRequest(), $uri)
             : null;
 

@@ -26,7 +26,6 @@ use Sentry\Bref\InternalErrors;
 use Sentry\Bref\Test\Support\CapturingTransport;
 use Sentry\Bref\Test\Support\TestSdk;
 use Sentry\ClientBuilder;
-use Sentry\DataCollection\DataCollectionPolicy;
 use Sentry\Tracing\Span;
 use Sentry\Tracing\SpanStatus;
 use Sentry\Tracing\Transaction;
@@ -214,9 +213,6 @@ class AwsSdkTracerTest extends TestCase
 
     public function testRecordsTheFullUrlWhenDataCollectionAllowsIt(): void
     {
-        if (!class_exists(DataCollectionPolicy::class)) {
-            $this->markTestSkipped('Data collection is not on the 5.x branch of sentry/sentry yet');
-        }
         // Any `data_collection` value opts into the SDK's data collection rules
         TestSdk::init(ClientBuilder::create(['data_collection' => []])->getClient());
         $transaction = new Transaction(new TransactionContext());
