@@ -230,7 +230,7 @@ class BrefSubscriber extends BrefEventSubscriber
         $transactionContext->setOp('function.aws');
         $transactionContext->setOrigin('auto.function.aws_lambda');
         $transactionContext->setSource(TransactionSource::component());
-        // See https://getsentry.github.io/sentry-conventions/attributes/
+        // See https://conventions.sentry.dev/attributes/
         $transactionContext->setData(array_filter([
             'faas.invocation_id' => $context->getAwsRequestId(),
             'faas.name' => $functionName,

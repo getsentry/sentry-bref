@@ -55,7 +55,7 @@ abstract class AwsSdkTracer
                         $context->setOp('http.client');
                         $context->setOrigin('auto.http.aws_sdk');
                         $context->setDescription($call['operation']);
-                        // See https://getsentry.github.io/sentry-conventions/attributes/
+                        // See https://conventions.sentry.dev/attributes/
                         $context->setData([
                             'rpc.system.name' => 'aws-api',
                             'rpc.service' => $serviceId,
@@ -130,7 +130,7 @@ abstract class AwsSdkTracer
     /**
      * The AWS resource the call is about, read from the command parameters.
      *
-     * @see https://getsentry.github.io/sentry-conventions/attributes/aws/
+     * @see https://conventions.sentry.dev/attributes/aws/
      *
      * @return array<string, mixed>
      */
@@ -166,7 +166,7 @@ abstract class AwsSdkTracer
      * The URL is the one actually called, after the SDK resolved the endpoint (e.g. S3 buckets
      * as subdomains). The request IDs are what AWS support asks for when investigating a call.
      *
-     * @see https://getsentry.github.io/sentry-conventions/attributes/
+     * @see https://conventions.sentry.dev/attributes/
      *
      * @param array{operation: string, method: mixed, resource: array<string, mixed>}|null $call
      */
