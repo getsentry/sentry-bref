@@ -19,6 +19,7 @@ use Sentry\Bref\InternalErrors;
 use Sentry\Bref\LambdaContext;
 use Sentry\Bref\Laravel\LaravelBridge;
 use Sentry\Bref\StartupTracking;
+use Sentry\Bref\Symfony\SymfonyBridge;
 use Sentry\Event;
 use Sentry\EventHint;
 use Sentry\SentrySdk;
@@ -308,6 +309,8 @@ class BrefSubscriber extends BrefEventSubscriber
         $laravel = null;
         if (LaravelBridge::isInstalled()) {
             $laravel = LaravelBridge::bootLaravel();
+        } else {
+            SymfonyBridge::bootSymfony();
         }
 
         $hint = new EventHint();
