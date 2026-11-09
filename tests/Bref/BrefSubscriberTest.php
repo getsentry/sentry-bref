@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Sentry\Bref\Test\Bref;
 
+use Bref\Bref;
 use Bref\Context\Context;
 use Bref\Event\Handler;
 use Bref\FpmRuntime\FpmHandler;
@@ -14,9 +15,11 @@ use Bref\Runtime\ColdStartTracker;
 use Illuminate\Config\Repository;
 use Illuminate\Container\Container;
 use PHPUnit\Framework\TestCase;
+use Psr\Container\ContainerInterface;
 use Psr\Log\LogLevel;
 use Sentry\Bref\Bref\BrefSubscriber;
 use Sentry\Bref\InternalErrors;
+use Sentry\Bref\Laravel\LaravelBridge;
 use Sentry\Bref\Test\Support\CapturingTransport;
 use Sentry\ClientBuilder;
 use Sentry\Event;
@@ -75,6 +78,7 @@ class BrefSubscriberTest extends TestCase
         $_SERVER = $this->server;
         $this->deleteFiles();
         SentrySdk::init();
+        Bref::reset();
     }
 
     public function testCreatesATransactionForEachInvocation(): void
@@ -409,6 +413,34 @@ class BrefSubscriberTest extends TestCase
             'method' => 'GET',
             'query_string' => 'foo=bar',
         ], $errors[0]->getRequest());
+    }
+
+    public function testReportsBrefErrorsOfFpmInvocationsWithTheClientOfTheContainer(): void
+    {
+        if (LaravelBridge::isInstalled()) {
+            $this->markTestSkipped('The client comes from Laravel when Laravel is installed');
+        }
+
+        // What Symfony does: the client is only bound when getting the hub from the container
+        $client = ClientBuilder::create(['dsn' => 'https://public@example.com/1'])->setTransport($this->transport)->getClient();
+        SentrySdk::init();
+        $container = $this->createMock(ContainerInterface::class);
+        $container->method('has')->with(HubInterface::class)->willReturn(true);
+        $container->method('get')->willReturnCallback(static function () use ($client) {
+            SentrySdk::getCurrentHub()->bindClient($client);
+
+            return SentrySdk::getCurrentHub();
+        });
+        Bref::setContainer(static fn () => $container);
+        $subscriber = $this->createWarmSubscriber();
+        $handler = new FpmHandler('index.php');
+
+        $subscriber->beforeInvoke($handler, $this->createHttpEvent(), Context::fake());
+        $subscriber->afterInvoke($handler, $this->createHttpEvent(), Context::fake(), null, new \RuntimeException('The PHP script timed out'));
+
+        $errors = $this->transport->errors();
+        $this->assertCount(1, $errors);
+        $this->assertSame('The PHP script timed out', $errors[0]->getExceptions()[0]->getValue());
     }
 
     public function testAFailureDuringStartupDoesNotBreakTheRuntime(): void
