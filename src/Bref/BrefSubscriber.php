@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Sentry\Bref\Bref;
 
+use Bref\ConsoleRuntime\Main as ConsoleRuntime;
 use Bref\Context\Context;
 use Bref\Event\Handler;
 use Bref\Event\Http\HttpRequestEvent;
@@ -121,7 +122,8 @@ class BrefSubscriber extends BrefEventSubscriber
             LambdaContext::start($context);
 
             // Ignore PHP-FPM handlers because the FPM worker will be responsible for reporting the transaction
-            if ($handler instanceof FpmHandler) {
+            // Same for console commands: the command's process reports its errors
+            if ($handler instanceof FpmHandler || self::isConsoleCommand($handler)) {
                 return;
             }
 
@@ -164,6 +166,11 @@ class BrefSubscriber extends BrefEventSubscriber
                 }
 
                 // Ignore PHP-FPM handlers because the FPM worker will be responsible for reporting the transaction
+                return;
+            }
+
+            // The command's process reports its errors: `CommandFailed` only holds the command's output
+            if (self::isConsoleCommand($handler)) {
                 return;
             }
 
@@ -274,6 +281,15 @@ class BrefSubscriber extends BrefEventSubscriber
         // TODO look at distributed traces
 
         return $handleSpan;
+    }
+
+    /**
+     * The handler of Bref's console runtime is a closure that runs the command in a separate process.
+     */
+    private static function isConsoleCommand(callable|Handler|RequestHandlerInterface $handler): bool
+    {
+        return $handler instanceof \Closure
+            && (new \ReflectionFunction($handler))->getClosureScopeClass()?->getName() === ConsoleRuntime::class;
     }
 
     /**

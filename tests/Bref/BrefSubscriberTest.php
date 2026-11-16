@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Sentry\Bref\Test\Bref;
 
 use Bref\Bref;
+use Bref\ConsoleRuntime\CommandFailed;
+use Bref\ConsoleRuntime\Main as ConsoleRuntime;
 use Bref\Context\Context;
 use Bref\Event\Handler;
 use Bref\FpmRuntime\FpmHandler;
@@ -388,6 +390,18 @@ class BrefSubscriberTest extends TestCase
 
         $subscriber->beforeInvoke($handler, $this->createHttpEvent(), Context::fake());
         $subscriber->afterInvoke($handler, $this->createHttpEvent(), Context::fake(), 'result');
+
+        $this->assertSame([], $this->transport->events);
+    }
+
+    public function testLeavesConsoleCommandsToTheirProcess(): void
+    {
+        $subscriber = $this->createWarmSubscriber();
+        // Like the handler of Bref's console runtime
+        $handler = \Closure::bind(static fn () => null, null, ConsoleRuntime::class);
+
+        $subscriber->beforeInvoke($handler, 'app:fail', Context::fake());
+        $subscriber->afterInvoke($handler, 'app:fail', Context::fake(), null, new CommandFailed('Command output'));
 
         $this->assertSame([], $this->transport->events);
     }
