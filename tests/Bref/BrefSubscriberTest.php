@@ -186,6 +186,8 @@ class BrefSubscriberTest extends TestCase
         $errors = $this->transport->errors();
         $this->assertCount(1, $errors);
         $this->assertSame('Invocation failed', $errors[0]->getExceptions()[0]->getValue());
+        // The error failed the invocation: it is not handled by the application
+        $this->assertFalse($errors[0]->getExceptions()[0]->getMechanism()?->isHandled());
         $this->assertSame('fake-aws-request-id', $errors[0]->getContexts()['aws.lambda']['aws_request_id']);
         // The error is linked to the invocation's trace
         $transaction = $this->singleTransaction();
@@ -407,6 +409,8 @@ class BrefSubscriberTest extends TestCase
         $errors = $this->transport->errors();
         $this->assertCount(1, $errors);
         $this->assertSame('The PHP script timed out', $errors[0]->getExceptions()[0]->getValue());
+        // The error failed the invocation: it is not handled by the application
+        $this->assertFalse($errors[0]->getExceptions()[0]->getMechanism()?->isHandled());
         $this->assertSame('fake-aws-request-id', $errors[0]->getContexts()['aws.lambda']['aws_request_id']);
         $this->assertSame([
             'url' => 'https://example.com/hello?foo=bar',

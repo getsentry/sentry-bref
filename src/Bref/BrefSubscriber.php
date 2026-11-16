@@ -22,6 +22,7 @@ use Sentry\Bref\StartupTracking;
 use Sentry\Bref\Symfony\SymfonyBridge;
 use Sentry\Event;
 use Sentry\EventHint;
+use Sentry\ExceptionMechanism;
 use Sentry\SentrySdk;
 use Sentry\State\HubInterface;
 use Sentry\Tracing\Span;
@@ -162,7 +163,7 @@ class BrefSubscriber extends BrefEventSubscriber
             }
 
             if ($error !== null) {
-                captureException($error);
+                captureException($error, self::unhandledErrorHint($error));
             }
 
             // No transaction to finish: the framework created it, or `beforeInvoke()` failed
@@ -313,10 +314,7 @@ class BrefSubscriber extends BrefEventSubscriber
             SymfonyBridge::bootSymfony();
         }
 
-        $hint = new EventHint();
-        if ($hint->exception === null) {
-            $hint->exception = $error;
-        }
+        $hint = self::unhandledErrorHint($error);
 
         $sentryEvent = Event::createEvent();
 
@@ -335,5 +333,16 @@ class BrefSubscriber extends BrefEventSubscriber
         captureEvent($sentryEvent, $hint);
 
         $laravel?->terminate();
+    }
+
+    /**
+     * The error failed the invocation: like the uncaught exceptions reported by the Sentry SDK.
+     */
+    private static function unhandledErrorHint(\Throwable $error): EventHint
+    {
+        return EventHint::fromArray([
+            'exception' => $error,
+            'mechanism' => new ExceptionMechanism(ExceptionMechanism::TYPE_GENERIC, false, ['code' => $error->getCode()]),
+        ]);
     }
 }
