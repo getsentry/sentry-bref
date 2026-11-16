@@ -125,6 +125,12 @@ class BrefSubscriber extends BrefEventSubscriber
                 return;
             }
 
+            // sentry-symfony only binds its client to the SDK when the hub service is created:
+            // in the function runtime, nothing creates it before the handler runs
+            if (!LaravelBridge::isInstalled()) {
+                SymfonyBridge::bootSymfony();
+            }
+
             $this->startInvocationContext();
 
             // The framework's Sentry SDK creates a better transaction: named after the job or the

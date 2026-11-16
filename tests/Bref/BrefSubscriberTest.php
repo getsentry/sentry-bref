@@ -443,6 +443,38 @@ class BrefSubscriberTest extends TestCase
         $this->assertSame('The PHP script timed out', $errors[0]->getExceptions()[0]->getValue());
     }
 
+    public function testReportsInvocationsWithTheClientOfTheContainer(): void
+    {
+        if (LaravelBridge::isInstalled()) {
+            $this->markTestSkipped('The client comes from Laravel when Laravel is installed');
+        }
+
+        // What Symfony does: the client is only bound when getting the hub from the container
+        $client = ClientBuilder::create([
+            'dsn' => 'https://public@example.com/1',
+            'traces_sample_rate' => 1.0,
+        ])->setTransport($this->transport)->getClient();
+        SentrySdk::init();
+        $container = $this->createMock(ContainerInterface::class);
+        $container->method('has')->with(HubInterface::class)->willReturn(true);
+        $container->method('get')->willReturnCallback(static function () use ($client) {
+            SentrySdk::getCurrentHub()->bindClient($client);
+
+            return SentrySdk::getCurrentHub();
+        });
+        Bref::setContainer(static fn () => $container);
+        $subscriber = $this->createWarmSubscriber();
+        $handler = $this->createHandler();
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        $subscriber->afterInvoke($handler, [], Context::fake(), null, new \RuntimeException('Invocation failed'));
+
+        $errors = $this->transport->errors();
+        $this->assertCount(1, $errors);
+        $this->assertSame('Invocation failed', $errors[0]->getExceptions()[0]->getValue());
+        $this->assertSame('internal_error', $this->singleTransaction()->getContexts()['trace']['status']);
+    }
+
     public function testAFailureDuringStartupDoesNotBreakTheRuntime(): void
     {
         // e.g. a file left corrupted by a previous process
