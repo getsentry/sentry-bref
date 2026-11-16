@@ -8,6 +8,9 @@ use Sentry\Bref\Symfony\EventSubscriber;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\HttpKernel\DependencyInjection\Extension;
 
+/**
+ * @internal
+ */
 class BrefSentryExtension extends Extension
 {
     public function load(array $configs, ContainerBuilder $container): void

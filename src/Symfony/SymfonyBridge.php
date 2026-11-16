@@ -8,6 +8,9 @@ use Bref\Bref;
 use Sentry\Bref\InternalErrors;
 use Sentry\State\HubInterface;
 
+/**
+ * @internal
+ */
 class SymfonyBridge
 {
     /**
