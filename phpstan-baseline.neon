@@ -229,12 +229,6 @@ parameters:
 			path: tests/Bref/BrefSubscriberTest.php
 
 		-
-			message: '#^Possibly invalid array key type string\|null\.$#'
-			identifier: offsetAccess.invalidOffset
-			count: 1
-			path: tests/Bref/BrefSubscriberTest.php
-
-		-
 			message: '#^Method Sentry\\Bref\\Test\\InitTest\:\:subscribers\(\) should return array\<object\> but returns mixed\.$#'
 			identifier: return.type
 			count: 1

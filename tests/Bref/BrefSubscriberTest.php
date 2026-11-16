@@ -270,7 +270,7 @@ class BrefSubscriberTest extends TestCase
         $transaction = $this->singleTransaction();
         $spans = [];
         foreach ($transaction->getSpans() as $span) {
-            $spans[$span->getOp()] = $span;
+            $spans[$span->getOp() ?? ''] = $span;
         }
         $this->assertTrue($transaction->getContexts()['trace']['data']['faas.coldstart']);
         $this->assertArrayHasKey('lambda.cold-start', $spans);
