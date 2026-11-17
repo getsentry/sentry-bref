@@ -11,6 +11,9 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 /**
  * Lets the Bref runtime process get the hub of the Sentry bundle: see `SymfonyBridge`.
  */
+/**
+ * @internal
+ */
 class PublicHubPass implements CompilerPassInterface
 {
     public function process(ContainerBuilder $container): void

@@ -9,6 +9,9 @@ use Sentry\SentrySdk;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 
+/**
+ * @internal
+ */
 class EventSubscriber implements EventSubscriberInterface
 {
     public static function getSubscribedEvents(): array
