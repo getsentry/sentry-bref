@@ -1,4 +1,23 @@
 # Changelog
+## 1.0.0
+
+### Documentation 📚
+
+- Point Sentry Conventions links to conventions.sentry.dev by @cleptric and @claude in [#18](https://github.com/getsentry/sentry-bref/pull/18)
+
+### Other
+
+- Mark the framework glue classes as internal by @mnapoli in [#22](https://github.com/getsentry/sentry-bref/pull/22)
+- Bump getsentry/craft from 3.11.1 to 3.12.0 by @dependabot in [#20](https://github.com/getsentry/sentry-bref/pull/20)
+- Fix PHPStan with phpstan/phpstan 2.3.6 by @mnapoli in [#21](https://github.com/getsentry/sentry-bref/pull/21)
+- Bump getsentry/craft from 3.9.0 to 3.11.1 by @dependabot in [#19](https://github.com/getsentry/sentry-bref/pull/19)
+- Report the errors outside of PHP-FPM with Symfony by @mnapoli in [#17](https://github.com/getsentry/sentry-bref/pull/17)
+- Bump getsentry/craft from 3.4.1 to 3.9.0 and update config by @BYK with @sentry-junior in [#16](https://github.com/getsentry/sentry-bref/pull/16)
+- Add the Lambda context to the events of PHP-FPM requests and console commands by @mnapoli in [#14](https://github.com/getsentry/sentry-bref/pull/14)
+- Add the Lambda context of the current invocation to events, whatever the scope by @mnapoli in [#13](https://github.com/getsentry/sentry-bref/pull/13)
+- Isolate the scope of each invocation and flush at the end by @mnapoli in [#12](https://github.com/getsentry/sentry-bref/pull/12)
+- Remove spaces from the AWS service name in span descriptions by @mnapoli in [#11](https://github.com/getsentry/sentry-bref/pull/11)
+
 ## 0.1.0
 
 ### New Features ✨

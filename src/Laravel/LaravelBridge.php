@@ -8,6 +8,9 @@ use Bref\LaravelBridge\LaravelPathFinder;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Console\Kernel;
 
+/**
+ * @internal
+ */
 class LaravelBridge
 {
     public static function isInstalled(): bool
