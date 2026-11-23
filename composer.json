@@ -50,14 +50,14 @@
         "phpstan/phpstan": "^2",
         "phpunit/phpunit": "^9",
         "sentry/sentry-laravel": "^4.28",
-        "symfony/dependency-injection": "^6.4 | ^7 | ^8",
-        "symfony/event-dispatcher": "^6.4 | ^7 | ^8",
-        "symfony/http-kernel": "^6.4 | ^7 | ^8"
+        "symfony/dependency-injection": "^5.4 | ^6.4 | ^7 | ^8",
+        "symfony/event-dispatcher": "^5.4 | ^6.4 | ^7 | ^8",
+        "symfony/http-kernel": "^5.4 | ^6.4 | ^7 | ^8"
     },
     "conflict": {
         "laravel/framework": "<12",
-        "symfony/http-foundation": "<6.4",
-        "symfony/http-kernel": "<6.4"
+        "symfony/http-foundation": "<5.4",
+        "symfony/http-kernel": "<5.4"
     },
     "suggest": {
         "sentry/sentry-laravel": "For Laravel applications: Lambda contexts and cold starts in Laravel's transactions",
