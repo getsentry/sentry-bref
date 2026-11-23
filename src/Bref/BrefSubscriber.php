@@ -9,6 +9,8 @@ use Bref\Context\Context;
 use Bref\Event\Handler;
 use Bref\Event\Http\HttpRequestEvent;
 use Bref\FpmRuntime\FpmHandler;
+use Bref\FpmRuntime\Main as FpmRuntime;
+use Bref\FunctionRuntime\Main as FunctionRuntime;
 use Bref\LaravelBridge\Http\OctaneHandler;
 use Bref\LaravelBridge\Queue\QueueHandler;
 use Bref\Listener\BrefEventSubscriber;
@@ -53,6 +55,12 @@ class BrefSubscriber extends BrefEventSubscriber
     public function afterStartup(): void
     {
         try {
+            // The handler is resolved, so the application is booted. Some frameworks only bind their
+            // client to the SDK when the hub service is created: nothing would create it before the handler runs
+            if (self::runtime() === FunctionRuntime::class) {
+                FrameworkHub::load();
+            }
+
             // On a cold start, the startup is reported with the first invocation (see `beforeInvoke()`)
             // On warm invocations the startup only happens when Bref's bootstrap process reboots, i.e.
             // after the response was sent. So that span/time does not count in the transaction because
@@ -123,13 +131,9 @@ class BrefSubscriber extends BrefEventSubscriber
 
             // Ignore PHP-FPM handlers because the FPM worker will be responsible for reporting the transaction
             // Same for console commands: the command's process reports its errors
-            if ($handler instanceof FpmHandler || self::isConsoleRuntime()) {
+            if ($handler instanceof FpmHandler || self::runtime() === ConsoleRuntime::class) {
                 return;
             }
-
-            // Before the invocation starts: some frameworks only bind their client to the SDK when the
-            // hub service is created, and nothing creates it before the handler runs
-            FrameworkHub::load();
 
             $this->startInvocationContext();
 
@@ -168,7 +172,7 @@ class BrefSubscriber extends BrefEventSubscriber
             }
 
             // The command's process reports its errors: `CommandFailed` only holds the command's output
-            if (self::isConsoleRuntime()) {
+            if (self::runtime() === ConsoleRuntime::class) {
                 return;
             }
 
@@ -282,13 +286,21 @@ class BrefSubscriber extends BrefEventSubscriber
     }
 
     /**
-     * Read like Bref's bootstrap does (`RUNTIME_CLASS` is the variable of Bref v2).
+     * The class of the runtime, read like Bref's bootstrap does (`RUNTIME_CLASS` is the variable of Bref v2).
      */
-    private static function isConsoleRuntime(): bool
+    private static function runtime(): ?string
     {
         $runtime = $_SERVER['BREF_RUNTIME'] ?? $_SERVER['RUNTIME_CLASS'] ?? null;
+        if (!\is_string($runtime)) {
+            return null;
+        }
 
-        return $runtime === 'console' || $runtime === ConsoleRuntime::class;
+        return match ($runtime) {
+            'function' => FunctionRuntime::class,
+            'fpm' => FpmRuntime::class,
+            'console' => ConsoleRuntime::class,
+            default => $runtime,
+        };
     }
 
     /**

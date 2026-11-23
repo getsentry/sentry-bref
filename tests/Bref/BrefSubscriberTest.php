@@ -396,16 +396,35 @@ class BrefSubscriberTest extends TestCase
 
     public function testLeavesConsoleCommandsToTheirProcess(): void
     {
-        foreach (['console', ConsoleRuntime::class] as $runtime) {
-            $_SERVER['BREF_RUNTIME'] = $runtime;
+        $variables = [
+            ['BREF_RUNTIME', 'console'],
+            ['BREF_RUNTIME', ConsoleRuntime::class],
+            // Bref v2's variable, still read by Bref's bootstrap
+            ['RUNTIME_CLASS', ConsoleRuntime::class],
+        ];
+        foreach ($variables as [$variable, $runtime]) {
+            unset($_SERVER['BREF_RUNTIME'], $_SERVER['RUNTIME_CLASS']);
+            $_SERVER[$variable] = $runtime;
             $subscriber = $this->createWarmSubscriber();
             $handler = $this->createHandler();
 
             $subscriber->beforeInvoke($handler, 'app:fail', Context::fake());
             $subscriber->afterInvoke($handler, 'app:fail', Context::fake(), null, new CommandFailed('Command output'));
 
-            $this->assertSame([], $this->transport->events, $runtime);
+            $this->assertSame([], $this->transport->events, "$variable=$runtime");
         }
+    }
+
+    public function testDoesNotBootTheApplicationInThePhpFpmRuntimeProcess(): void
+    {
+        SentrySdk::init();
+        $container = $this->createMock(ContainerInterface::class);
+        $container->expects($this->never())->method('has');
+        Bref::setContainer(static fn () => $container);
+        $_SERVER['BREF_RUNTIME'] = 'fpm';
+
+        // The application boots in the PHP-FPM workers, the runtime process only boots it to report an error
+        $this->createWarmSubscriber()->afterStartup();
     }
 
     public function testReportsBrefErrorsOfFpmInvocations(): void
@@ -475,7 +494,9 @@ class BrefSubscriberTest extends TestCase
             return SentrySdk::getCurrentHub();
         });
         Bref::setContainer(static fn () => $container);
+        $_SERVER['BREF_RUNTIME'] = 'function';
         $subscriber = $this->createWarmSubscriber();
+        $subscriber->afterStartup();
         $handler = $this->createHandler();
 
         $subscriber->beforeInvoke($handler, [], Context::fake());

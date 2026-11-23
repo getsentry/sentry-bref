@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Sentry\Bref\Test;
 
 use Bref\Bref;
+use Bref\LaravelBridge\HandlerResolver;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
@@ -24,6 +25,7 @@ class FrameworkHubTest extends TestCase
     protected function tearDown(): void
     {
         Bref::reset();
+        SentrySdk::init();
     }
 
     public function testDoesNothingWhenTheSdkAlreadyHasAClient(): void
@@ -54,6 +56,24 @@ class FrameworkHubTest extends TestCase
         Bref::setContainer(static fn () => $container);
 
         FrameworkHub::load();
+    }
+
+    /**
+     * @group laravel
+     */
+    public function testLeavesLaravelToSentryLaravel(): void
+    {
+        // Asking laravel-bridge's container would boot Laravel: here it fails, without a Laravel application
+        Bref::setContainer(static fn () => new HandlerResolver());
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($this->never())->method('error');
+        InternalErrors::setLogger($logger);
+
+        try {
+            FrameworkHub::load();
+        } finally {
+            InternalErrors::setLogger(null);
+        }
     }
 
     public function testAFailureToGetTheHubIsLogged(): void
