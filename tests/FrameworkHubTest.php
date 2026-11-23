@@ -2,21 +2,38 @@
 
 declare(strict_types=1);
 
-namespace Sentry\Bref\Test\Symfony;
+namespace Sentry\Bref\Test;
 
 use Bref\Bref;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
+use Sentry\Bref\FrameworkHub;
 use Sentry\Bref\InternalErrors;
-use Sentry\Bref\Symfony\SymfonyBridge;
+use Sentry\ClientBuilder;
+use Sentry\SentrySdk;
 use Sentry\State\HubInterface;
 
-class SymfonyBridgeTest extends TestCase
+class FrameworkHubTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        SentrySdk::init();
+    }
+
     protected function tearDown(): void
     {
         Bref::reset();
+    }
+
+    public function testDoesNothingWhenTheSdkAlreadyHasAClient(): void
+    {
+        SentrySdk::getCurrentHub()->bindClient(ClientBuilder::create()->getClient());
+        $container = $this->createMock(ContainerInterface::class);
+        $container->expects($this->never())->method('has');
+        Bref::setContainer(static fn () => $container);
+
+        FrameworkHub::load();
     }
 
     public function testGetsTheHubFromTheContainerOfBref(): void
@@ -26,7 +43,7 @@ class SymfonyBridgeTest extends TestCase
         $container->expects($this->once())->method('get')->with(HubInterface::class);
         Bref::setContainer(static fn () => $container);
 
-        SymfonyBridge::bootSymfony();
+        FrameworkHub::load();
     }
 
     public function testDoesNothingWhenTheContainerHasNoHub(): void
@@ -36,10 +53,10 @@ class SymfonyBridgeTest extends TestCase
         $container->expects($this->never())->method('get');
         Bref::setContainer(static fn () => $container);
 
-        SymfonyBridge::bootSymfony();
+        FrameworkHub::load();
     }
 
-    public function testAFailureToBootDoesNotPreventReportingTheError(): void
+    public function testAFailureToGetTheHubIsLogged(): void
     {
         $container = $this->createMock(ContainerInterface::class);
         $container->method('has')->willThrowException(new \RuntimeException('Cannot boot'));
@@ -49,7 +66,7 @@ class SymfonyBridgeTest extends TestCase
         InternalErrors::setLogger($logger);
 
         try {
-            SymfonyBridge::bootSymfony();
+            FrameworkHub::load();
         } finally {
             InternalErrors::setLogger(null);
         }

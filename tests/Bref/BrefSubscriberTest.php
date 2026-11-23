@@ -396,14 +396,16 @@ class BrefSubscriberTest extends TestCase
 
     public function testLeavesConsoleCommandsToTheirProcess(): void
     {
-        $subscriber = $this->createWarmSubscriber();
-        // Like the handler of Bref's console runtime
-        $handler = \Closure::bind(static fn () => null, null, ConsoleRuntime::class);
+        foreach (['console', ConsoleRuntime::class] as $runtime) {
+            $_SERVER['BREF_RUNTIME'] = $runtime;
+            $subscriber = $this->createWarmSubscriber();
+            $handler = $this->createHandler();
 
-        $subscriber->beforeInvoke($handler, 'app:fail', Context::fake());
-        $subscriber->afterInvoke($handler, 'app:fail', Context::fake(), null, new CommandFailed('Command output'));
+            $subscriber->beforeInvoke($handler, 'app:fail', Context::fake());
+            $subscriber->afterInvoke($handler, 'app:fail', Context::fake(), null, new CommandFailed('Command output'));
 
-        $this->assertSame([], $this->transport->events);
+            $this->assertSame([], $this->transport->events, $runtime);
+        }
     }
 
     public function testReportsBrefErrorsOfFpmInvocations(): void
@@ -459,10 +461,6 @@ class BrefSubscriberTest extends TestCase
 
     public function testReportsInvocationsWithTheClientOfTheContainer(): void
     {
-        if (LaravelBridge::isInstalled()) {
-            $this->markTestSkipped('The client comes from Laravel when Laravel is installed');
-        }
-
         // What Symfony does: the client is only bound when getting the hub from the container
         $client = ClientBuilder::create([
             'dsn' => 'https://public@example.com/1',

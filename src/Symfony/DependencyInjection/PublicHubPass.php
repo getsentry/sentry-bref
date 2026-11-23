@@ -9,7 +9,7 @@ use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 
 /**
- * Lets the Bref runtime process get the hub of the Sentry bundle: see `SymfonyBridge`.
+ * Lets the Bref runtime process get the hub of the Sentry bundle: see `FrameworkHub`.
  */
 /**
  * @internal

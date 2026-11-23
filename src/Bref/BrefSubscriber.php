@@ -16,11 +16,11 @@ use Bref\Runtime\ColdStartTracker;
 use Illuminate\Container\Container;
 use Psr\Http\Server\RequestHandlerInterface;
 use Sentry\Bref\BrefSpans;
+use Sentry\Bref\FrameworkHub;
 use Sentry\Bref\InternalErrors;
 use Sentry\Bref\LambdaContext;
 use Sentry\Bref\Laravel\LaravelBridge;
 use Sentry\Bref\StartupTracking;
-use Sentry\Bref\Symfony\SymfonyBridge;
 use Sentry\Event;
 use Sentry\EventHint;
 use Sentry\SentrySdk;
@@ -123,15 +123,13 @@ class BrefSubscriber extends BrefEventSubscriber
 
             // Ignore PHP-FPM handlers because the FPM worker will be responsible for reporting the transaction
             // Same for console commands: the command's process reports its errors
-            if ($handler instanceof FpmHandler || self::isConsoleCommand($handler)) {
+            if ($handler instanceof FpmHandler || self::isConsoleRuntime()) {
                 return;
             }
 
-            // sentry-symfony only binds its client to the SDK when the hub service is created:
-            // in the function runtime, nothing creates it before the handler runs
-            if (!LaravelBridge::isInstalled()) {
-                SymfonyBridge::bootSymfony();
-            }
+            // Before the invocation starts: some frameworks only bind their client to the SDK when the
+            // hub service is created, and nothing creates it before the handler runs
+            FrameworkHub::load();
 
             $this->startInvocationContext();
 
@@ -170,7 +168,7 @@ class BrefSubscriber extends BrefEventSubscriber
             }
 
             // The command's process reports its errors: `CommandFailed` only holds the command's output
-            if (self::isConsoleCommand($handler)) {
+            if (self::isConsoleRuntime()) {
                 return;
             }
 
@@ -284,12 +282,13 @@ class BrefSubscriber extends BrefEventSubscriber
     }
 
     /**
-     * The handler of Bref's console runtime is a closure that runs the command in a separate process.
+     * Read like Bref's bootstrap does (`RUNTIME_CLASS` is the variable of Bref v2).
      */
-    private static function isConsoleCommand(callable|Handler|RequestHandlerInterface $handler): bool
+    private static function isConsoleRuntime(): bool
     {
-        return $handler instanceof \Closure
-            && (new \ReflectionFunction($handler))->getClosureScopeClass()?->getName() === ConsoleRuntime::class;
+        $runtime = $_SERVER['BREF_RUNTIME'] ?? $_SERVER['RUNTIME_CLASS'] ?? null;
+
+        return $runtime === 'console' || $runtime === ConsoleRuntime::class;
     }
 
     /**
@@ -332,7 +331,7 @@ class BrefSubscriber extends BrefEventSubscriber
         if (LaravelBridge::isInstalled()) {
             $laravel = LaravelBridge::bootLaravel();
         } else {
-            SymfonyBridge::bootSymfony();
+            FrameworkHub::load();
         }
 
         $hint = new EventHint();
