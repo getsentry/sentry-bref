@@ -130,6 +130,29 @@ class AwsSdkTracerTest extends TestCase
         $this->assertSame($transaction, $hub->getSpan());
     }
 
+    public function testFinishesTheSpanWhenCommandValidationThrows(): void
+    {
+        $hub = SentrySdk::init();
+        $transaction = new Transaction(new TransactionContext());
+        $transaction->initSpanRecorder();
+        $hub->setSpan($transaction);
+
+        $client = $this->createSqsClient();
+        AwsSdkTracer::trace($client);
+        try {
+            $client->sendMessage(['QueueUrl' => self::QUEUE_URL]);
+            $this->fail('The AWS SDK validation exception should be thrown');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('MessageBody', $e->getMessage());
+        }
+
+        $spans = $this->childSpans($transaction);
+        $this->assertCount(1, $spans);
+        $this->assertSame('SQS.SendMessage', $spans[0]->getDescription());
+        $this->assertNotNull($spans[0]->getEndTimestamp());
+        $this->assertEquals(SpanStatus::internalError(), $spans[0]->getStatus());
+    }
+
     public function testFailedCallsAreMarkedAsErrors(): void
     {
         $hub = SentrySdk::init();

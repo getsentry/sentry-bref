@@ -71,8 +71,32 @@ abstract class AwsSdkTracer
                     InternalErrors::log($e);
                 }
 
-                /** @var PromiseInterface $promise */
-                $promise = $handler($command, $request);
+                $recordFailure = static function ($reason) use ($call, $span): void {
+                    try {
+                        // Finish the span first so that its duration only covers the AWS call
+                        $span?->finish();
+                        $isAwsException = $reason instanceof AwsException;
+                        self::recordResponse(
+                            $call,
+                            $span,
+                            $isAwsException ? $reason->getRequest()?->getUri() : null,
+                            $isAwsException ? $reason->getStatusCode() : null,
+                            $isAwsException ? $reason->getAwsRequestId() : null,
+                            $isAwsException ? ($reason->getResponse()?->getHeaderLine('x-amz-id-2') ?: null) : null,
+                            true,
+                        );
+                    } catch (\Throwable $e) {
+                        InternalErrors::log($e);
+                    }
+                };
+
+                try {
+                    /** @var PromiseInterface $promise */
+                    $promise = $handler($command, $request);
+                } catch (\Throwable $e) {
+                    $recordFailure($e);
+                    throw $e;
+                }
 
                 $promise->then(static function ($result) use ($call, $span) {
                     try {
@@ -100,23 +124,8 @@ abstract class AwsSdkTracer
                     }
 
                     return $result;
-                }, static function ($reason) use ($call, $span): void {
-                    try {
-                        // Finish the span first so that its duration only covers the AWS call
-                        $span?->finish();
-                        $isAwsException = $reason instanceof AwsException;
-                        self::recordResponse(
-                            $call,
-                            $span,
-                            $isAwsException ? $reason->getRequest()?->getUri() : null,
-                            $isAwsException ? $reason->getStatusCode() : null,
-                            $isAwsException ? $reason->getAwsRequestId() : null,
-                            $isAwsException ? ($reason->getResponse()?->getHeaderLine('x-amz-id-2') ?: null) : null,
-                            true,
-                        );
-                    } catch (\Throwable $e) {
-                        InternalErrors::log($e);
-                    }
+                }, static function ($reason) use ($recordFailure): void {
+                    $recordFailure($reason);
                     throw $reason;
                 });
 
