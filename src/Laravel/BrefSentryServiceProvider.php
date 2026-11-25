@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Sentry\Bref\Laravel;
 
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Contracts\Foundation\Application;
@@ -51,9 +52,10 @@ class BrefSentryServiceProvider extends ServiceProvider
     private function traceAwsClientsOfLaravel(): void
     {
         // Laravel creates the client when the queue connection is first used: it is traced before the job is sent
-        $this->app->make(Dispatcher::class)->listen(JobQueueing::class, function (JobQueueing $event): void {
+        $this->app->make(Dispatcher::class)->listen(JobQueueing::class, static function (JobQueueing $event): void {
             try {
-                $queue = $this->app->make(QueueFactory::class)->connection($event->connectionName);
+                // The current container: with Octane, the copy of the application that handles the request
+                $queue = Container::getInstance()->make(QueueFactory::class)->connection($event->connectionName);
                 if ($queue instanceof SqsQueue) {
                     AwsSdkTracer::trace($queue->getSqs());
                 }

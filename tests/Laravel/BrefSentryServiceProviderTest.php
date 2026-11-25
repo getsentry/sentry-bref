@@ -7,6 +7,7 @@ namespace Sentry\Bref\Test\Laravel;
 use Aws\MockHandler;
 use Aws\Result;
 use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Filesystem\Factory as FilesystemFactory;
 use Illuminate\Contracts\Queue\Factory as QueueFactory;
 use Illuminate\Contracts\Queue\Job;
@@ -42,6 +43,7 @@ class BrefSentryServiceProviderTest extends TestCase
         if (file_exists(self::SPANS_FILE)) {
             unlink(self::SPANS_FILE);
         }
+        Container::setInstance(null);
         Facade::clearResolvedInstances();
         Facade::setFacadeApplication(null);
         SentrySdk::init();
@@ -82,6 +84,29 @@ class BrefSentryServiceProviderTest extends TestCase
         $transaction = $this->startTransaction();
 
         $app->make(QueueFactory::class)->connection()->push('App\\Jobs\\TestJob');
+
+        $this->assertSame(['SQS.SendMessage'], $this->spanDescriptions($transaction));
+    }
+
+    public function testTracesTheSqsClientOfQueuesWithOctane(): void
+    {
+        $app = $this->createApplication([
+            'queue.default' => 'sqs',
+            'queue.connections.sqs' => [
+                'driver' => 'sqs',
+                'prefix' => 'https://sqs.eu-west-1.amazonaws.com/123456789012',
+                'queue' => 'jobs',
+                'region' => 'eu-west-1',
+                'credentials' => false,
+                'handler' => new MockHandler([new Result(['MessageId' => 'message-id'])]),
+            ],
+        ]);
+        // Octane handles each request with a copy of the application
+        $sandbox = clone $app;
+        Container::setInstance($sandbox);
+        $transaction = $this->startTransaction();
+
+        $sandbox->make(QueueFactory::class)->connection()->push('App\\Jobs\\TestJob');
 
         $this->assertSame(['SQS.SendMessage'], $this->spanDescriptions($transaction));
     }
