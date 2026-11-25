@@ -18,7 +18,6 @@ use Sentry\Bref\BrefSpans;
 use Sentry\Bref\InternalErrors;
 use Sentry\Bref\LambdaContext;
 use Sentry\Bref\Laravel\LaravelBridge;
-use Sentry\Bref\StartupTracking;
 use Sentry\Bref\Symfony\SymfonyBridge;
 use Sentry\Event;
 use Sentry\EventHint;
@@ -54,49 +53,10 @@ class BrefSubscriber extends BrefEventSubscriber
     {
         try {
             // On a cold start, the startup is reported with the first invocation (see `beforeInvoke()`)
-            // On warm invocations the startup only happens when Bref's bootstrap process reboots, i.e.
-            // after the response was sent. So that span/time does not count in the transaction because
-            // it's not part of the client response time/experience.
+            // The PHP process also restarts between invocations (`BREF_LOOP_MAX`): that happens after
+            // the previous invocation, outside of any invocation's duration, so it is not reported
             if (ColdStartTracker::currentInvocationIsColdStart()) {
                 $this->startUpEnd = microtime(true);
-            } else {
-                // We're reporting a new transaction as a child of the previous one
-                $context = StartupTracking::createChildTransaction();
-                if ($context && $context->getParentSampled()) {
-                    $functionName = $_SERVER['AWS_LAMBDA_FUNCTION_NAME'] ?? '';
-
-                    $context->setName('bref.startup');
-                    $context->setOp('function.aws');
-                    $context->setOrigin('auto.function.aws_lambda');
-                    $context->setSource(TransactionSource::task());
-                    $context->setStartTimestamp($this->startUpStart);
-                    $context->setDescription('Bref and the entire PHP process restarted at the end of the previous invocation, this is by design. This happened outside of the previous invocation duration/HTTP response time (if it was an HTTP request), this is why it is tracked as a child Sentry transaction. Check out the Sentry trace to see the previous invocation. You can disable that behavior via BREF_LOOP_MAX: https://bref.sh/docs/environment/performances#bref-for-event-driven-functions');
-                    $context->setData([
-                        'faas.name' => $functionName,
-                        'cloud.provider' => 'aws',
-                        'cloud.platform' => 'aws_lambda',
-                        'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
-                    ]);
-                    $context->setTags([
-                        'cloud.region' => $_SERVER['AWS_REGION'] ?? '',
-                        'faas.name' => $functionName,
-                    ]);
-
-                    $hub = SentrySdk::getCurrentHub();
-                    $transaction = $hub->startTransaction($context);
-                    $hub->setSpan($transaction);
-                    $spanContext = new SpanContext();
-                    $spanContext->setOp('bref.startup');
-                    $spanContext->setStartTimestamp($this->startUpStart);
-                    $startupSpan = $transaction->startChild($spanContext);
-                    $hub->setSpan($startupSpan);
-                    $startupSpan->finish();
-                    $hub->setSpan($transaction);
-                    $transaction->setStatus(SpanStatus::ok());
-                    $transaction->finish();
-
-                    StartupTracking::clear();
-                }
             }
         } catch (\Throwable $e) {
             InternalErrors::log($e);
@@ -294,8 +254,6 @@ class BrefSubscriber extends BrefEventSubscriber
     {
         $hub = SentrySdk::getCurrentHub();
         $transaction = $hub->getTransaction();
-
-        StartupTracking::storeReferenceToCurrentTransaction();
 
         $handleSpan->finish();
 

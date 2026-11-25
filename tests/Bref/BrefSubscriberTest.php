@@ -42,7 +42,6 @@ class BrefSubscriberTest extends TestCase
         // Bref's cold start tracker
         '/tmp/.bref-cold-start',
         '/tmp/bref-sentry-spans.json',
-        '/tmp/bref-sentry-startup.txt',
     ];
 
     private CapturingTransport $transport;
@@ -307,31 +306,6 @@ class BrefSubscriberTest extends TestCase
         $this->assertGreaterThanOrEqual($invocationStart, $transaction->getStartTimestamp());
     }
 
-    public function testReportsWarmRestartsAsAChildTransaction(): void
-    {
-        $handler = $this->createHandler();
-        $first = $this->createWarmSubscriber();
-        $first->beforeInvoke($handler, [], Context::fake());
-        $first->afterInvoke($handler, [], Context::fake(), 'result');
-
-        // The PHP process restarts (BREF_LOOP_MAX=1)
-        $restarted = $this->createWarmSubscriber();
-        $restarted->beforeStartup();
-        $restarted->afterStartup();
-
-        $transactions = $this->transport->transactions();
-        $this->assertCount(2, $transactions);
-        $this->assertSame('bref.startup', $transactions[1]->getTransaction());
-        $this->assertSame('ok', $transactions[1]->getContexts()['trace']['status']);
-        $this->assertSame(
-            $transactions[0]->getContexts()['trace']['trace_id'],
-            $transactions[1]->getContexts()['trace']['trace_id'],
-        );
-    }
-
-    /**
-     * @group laravel
-     */
     public function testLetsSentryLaravelTraceQueueJobs(): void
     {
         $subscriber = $this->createWarmSubscriber();
@@ -445,20 +419,6 @@ class BrefSubscriberTest extends TestCase
         $errors = $this->transport->errors();
         $this->assertCount(1, $errors);
         $this->assertSame('The PHP script timed out', $errors[0]->getExceptions()[0]->getValue());
-    }
-
-    public function testAFailureDuringStartupDoesNotBreakTheRuntime(): void
-    {
-        // e.g. a file left corrupted by a previous process
-        file_put_contents('/tmp/bref-sentry-startup.txt', 'not JSON');
-        $subscriber = $this->createWarmSubscriber();
-
-        $logs = $this->captureLogs(static function () use ($subscriber) {
-            $subscriber->beforeStartup();
-            $subscriber->afterStartup();
-        });
-
-        $this->assertStringContainsString('Sentry Bref integration error: Syntax error', $logs);
     }
 
     public function testAFailureBeforeTheInvocationDoesNotFailTheInvocation(): void
