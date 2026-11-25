@@ -133,7 +133,10 @@ abstract class AwsSdkTracer
             };
         };
 
-        $awsClient->getHandlerList()->appendInit($middleware);
+        // Tracing a client twice (e.g. by the application and by this package) would report its calls twice
+        $handlerList = $awsClient->getHandlerList();
+        $handlerList->remove('sentry-bref');
+        $handlerList->appendInit($middleware, 'sentry-bref');
     }
 
     /**
