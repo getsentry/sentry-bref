@@ -33,6 +33,7 @@ use Sentry\Tracing\TransactionContext;
 
 use function Sentry\captureException;
 use function Sentry\captureMessage;
+use function Sentry\startTransaction;
 
 class AwsSdkTracerTest extends TestCase
 {
@@ -295,6 +296,28 @@ class AwsSdkTracerTest extends TestCase
         $this->assertSame('extended-request-id', $spans[0]->getData()['aws.extended_request_id']);
     }
 
+    public function testIgnoresPresignedRequests(): void
+    {
+        $transport = $this->initSdkWithTransport(['traces_sample_rate' => 1.0]);
+        $transaction = startTransaction(new TransactionContext());
+        SentrySdk::getCurrentHub()->setSpan($transaction);
+
+        $client = new S3Client([
+            'region' => 'eu-west-1',
+            'credentials' => ['key' => 'key', 'secret' => 'secret'],
+            'handler' => new MockHandler(),
+        ]);
+        AwsSdkTracer::trace($client);
+        // What `temporaryUrl()` of Laravel's S3 disks does: no call to AWS
+        $command = $client->getCommand('GetObject', ['Bucket' => 'my-bucket', 'Key' => 'file.txt']);
+        $client->createPresignedRequest($command, '+10 minutes');
+        captureMessage('Something went wrong');
+        $transaction->finish();
+
+        $this->assertSame([], $transport->events[0]->getBreadcrumbs());
+        $this->assertSame([], $transport->transactions()[0]->getSpans());
+    }
+
     public function testRecordsABreadcrumbForEachCall(): void
     {
         // Without tracing: breadcrumbs are useful for errors too
@@ -390,13 +413,16 @@ class AwsSdkTracerTest extends TestCase
         $this->assertSame($transaction, $hub->getSpan());
     }
 
-    private function initSdkWithTransport(): CapturingTransport
+    /**
+     * @param array<string, mixed> $options
+     */
+    private function initSdkWithTransport(array $options = []): CapturingTransport
     {
         $transport = new CapturingTransport();
         SentrySdk::init()->bindClient(ClientBuilder::create([
             'dsn' => 'https://public@example.com/1',
             'default_integrations' => false,
-        ])->setTransport($transport)->getClient());
+        ] + $options)->setTransport($transport)->getClient());
 
         return $transport;
     }

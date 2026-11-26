@@ -100,10 +100,16 @@ abstract class AwsSdkTracer
 
                 $promise->then(static function ($result) use ($call, $span) {
                     try {
-                        // Finish the span first so that its duration only covers the AWS call
-                        $span?->finish();
                         // The SDK copies the response status code and headers (lowercased) into `@metadata`
                         $metadata = $result instanceof ResultInterface ? ($result['@metadata'] ?? []) : [];
+                        // Presigned URLs (e.g. `temporaryUrl()` of Laravel's S3 disks) run the command through the
+                        // handlers without sending it: there is no response. The span is left unfinished, so that
+                        // Sentry drops it, and no breadcrumb is recorded
+                        if ($result instanceof ResultInterface && !(\is_array($metadata) && isset($metadata['statusCode']))) {
+                            return $result;
+                        }
+                        // Finish the span first so that its duration only covers the AWS call
+                        $span?->finish();
                         $headers = $metadata['headers'] ?? [];
                         self::recordResponse(
                             $call,
