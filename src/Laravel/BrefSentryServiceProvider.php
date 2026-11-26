@@ -4,22 +4,19 @@ declare(strict_types=1);
 
 namespace Sentry\Bref\Laravel;
 
-use Illuminate\Container\Container;
-use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Http\Kernel as HttpKernelInterface;
-use Illuminate\Contracts\Queue\Factory as QueueFactory;
 use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Filesystem\FilesystemManager;
 use Illuminate\Queue\Events\JobProcessing;
-use Illuminate\Queue\Events\JobQueueing;
-use Illuminate\Queue\SqsQueue;
+use Illuminate\Queue\QueueManager;
 use Illuminate\Support\ServiceProvider;
 use Sentry\Bref\AwsSdk\AwsSdkTracer;
 use Sentry\Bref\BrefSpans;
 use Sentry\Bref\InternalErrors;
 use Sentry\Bref\Laravel\Middleware\SentryApm;
+use Sentry\Bref\Laravel\Queue\TracedSqsConnector;
 use Sentry\SentrySdk;
 
 class BrefSentryServiceProvider extends ServiceProvider
@@ -51,17 +48,8 @@ class BrefSentryServiceProvider extends ServiceProvider
      */
     private function traceAwsClientsOfLaravel(): void
     {
-        // Laravel creates the client when the queue connection is first used: it is traced before the job is sent
-        $this->app->make(Dispatcher::class)->listen(JobQueueing::class, static function (JobQueueing $event): void {
-            try {
-                // The current container: with Octane, the copy of the application that handles the request
-                $queue = Container::getInstance()->make(QueueFactory::class)->connection($event->connectionName);
-                if ($queue instanceof SqsQueue) {
-                    AwsSdkTracer::trace($queue->getSqs());
-                }
-            } catch (\Throwable $e) {
-                InternalErrors::log($e);
-            }
+        $this->callAfterResolving('queue', static function (QueueManager $queue): void {
+            $queue->addConnector('sqs', static fn () => new TracedSqsConnector());
         });
 
         $this->callAfterResolving('filesystem', function (FilesystemManager $filesystem): void {

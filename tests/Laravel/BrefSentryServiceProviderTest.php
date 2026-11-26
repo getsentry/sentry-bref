@@ -11,6 +11,7 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Filesystem\Factory as FilesystemFactory;
 use Illuminate\Contracts\Queue\Factory as QueueFactory;
 use Illuminate\Contracts\Queue\Job;
+use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Filesystem\FilesystemServiceProvider;
 use Illuminate\Foundation\Application;
 use Illuminate\Queue\Events\JobProcessing;
@@ -111,6 +112,31 @@ class BrefSentryServiceProviderTest extends TestCase
         $this->assertSame(['SQS.SendMessage'], $this->spanDescriptions($transaction));
     }
 
+    public function testTracesTheSqsCallsOutsideOfDispatches(): void
+    {
+        $app = $this->createApplication([
+            'queue.default' => 'sqs',
+            'queue.connections.sqs' => [
+                'driver' => 'sqs',
+                'prefix' => 'https://sqs.eu-west-1.amazonaws.com/123456789012',
+                'queue' => 'jobs',
+                'region' => 'eu-west-1',
+                'credentials' => false,
+                'handler' => new MockHandler([new Result(['Attributes' => [
+                    'ApproximateNumberOfMessages' => '0',
+                    'ApproximateNumberOfMessagesDelayed' => '0',
+                    'ApproximateNumberOfMessagesNotVisible' => '0',
+                ]])]),
+            ],
+        ]);
+        $transaction = $this->startTransaction();
+
+        // e.g. the worker deleting or releasing the messages it processed
+        $app->make(QueueFactory::class)->connection()->size();
+
+        $this->assertSame(['SQS.GetQueueAttributes'], $this->spanDescriptions($transaction));
+    }
+
     public function testTracesTheS3ClientOfDisks(): void
     {
         $app = $this->createApplication([
@@ -127,6 +153,28 @@ class BrefSentryServiceProviderTest extends TestCase
         $app->make(FilesystemFactory::class)->disk('s3')->put('file.txt', 'content');
 
         $this->assertSame(['S3.PutObject'], $this->spanDescriptions($transaction));
+    }
+
+    public function testDoesNotTraceTemporaryUrlsOfDisks(): void
+    {
+        $app = $this->createApplication([
+            'filesystems.disks.s3' => [
+                'driver' => 's3',
+                'bucket' => 'my-bucket',
+                'region' => 'eu-west-1',
+                'key' => 'key',
+                'secret' => 'secret',
+                'handler' => new MockHandler(),
+            ],
+        ]);
+        $transaction = $this->startTransaction();
+
+        // No call to AWS: the URL is signed locally
+        $disk = $app->make(FilesystemFactory::class)->disk('s3');
+        $this->assertInstanceOf(AwsS3V3Adapter::class, $disk);
+        $disk->temporaryUrl('file.txt', now()->addMinutes(10));
+
+        $this->assertSame([], $this->spanDescriptions($transaction));
     }
 
     /**
@@ -159,11 +207,16 @@ class BrefSentryServiceProviderTest extends TestCase
     }
 
     /**
+     * The spans Sentry receives: it drops the unfinished ones.
+     *
      * @return list<string|null>
      */
     private function spanDescriptions(Transaction $transaction): array
     {
-        $spans = array_filter($transaction->getSpanRecorder()?->getSpans() ?? [], static fn (Span $span) => $span !== $transaction);
+        $spans = array_filter(
+            $transaction->getSpanRecorder()?->getSpans() ?? [],
+            static fn (Span $span) => $span !== $transaction && $span->getEndTimestamp() !== null,
+        );
 
         return array_values(array_map(static fn (Span $span) => $span->getDescription(), $spans));
     }
