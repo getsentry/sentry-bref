@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Sentry\Bref\Bref;
 
+use Bref\ConsoleRuntime\Main as ConsoleRuntime;
 use Bref\Context\Context;
 use Bref\Event\Handler;
 use Bref\Event\Http\HttpRequestEvent;
 use Bref\FpmRuntime\FpmHandler;
+use Bref\FpmRuntime\Main as FpmRuntime;
+use Bref\FunctionRuntime\Main as FunctionRuntime;
 use Bref\LaravelBridge\Http\OctaneHandler;
 use Bref\LaravelBridge\Queue\QueueHandler;
 use Bref\Listener\BrefEventSubscriber;
@@ -15,11 +18,11 @@ use Bref\Runtime\ColdStartTracker;
 use Illuminate\Container\Container;
 use Psr\Http\Server\RequestHandlerInterface;
 use Sentry\Bref\BrefSpans;
+use Sentry\Bref\FrameworkHub;
 use Sentry\Bref\InternalErrors;
 use Sentry\Bref\LambdaContext;
 use Sentry\Bref\Laravel\LaravelBridge;
 use Sentry\Bref\StartupTracking;
-use Sentry\Bref\Symfony\SymfonyBridge;
 use Sentry\Event;
 use Sentry\EventHint;
 use Sentry\ExceptionMechanism;
@@ -53,6 +56,12 @@ class BrefSubscriber extends BrefEventSubscriber
     public function afterStartup(): void
     {
         try {
+            // The handler is resolved, so the application is booted. Some frameworks only bind their
+            // client to the SDK when the hub service is created: nothing would create it before the handler runs
+            if (self::runtime() === FunctionRuntime::class) {
+                FrameworkHub::load();
+            }
+
             // On a cold start, the startup is reported with the first invocation (see `beforeInvoke()`)
             // On warm invocations the startup only happens when Bref's bootstrap process reboots, i.e.
             // after the response was sent. So that span/time does not count in the transaction because
@@ -122,7 +131,8 @@ class BrefSubscriber extends BrefEventSubscriber
             LambdaContext::start($context);
 
             // Ignore PHP-FPM handlers because the FPM worker will be responsible for reporting the transaction
-            if ($handler instanceof FpmHandler) {
+            // Same for console commands: the command's process reports its errors
+            if ($handler instanceof FpmHandler || self::runtime() === ConsoleRuntime::class) {
                 return;
             }
 
@@ -159,6 +169,11 @@ class BrefSubscriber extends BrefEventSubscriber
                 }
 
                 // Ignore PHP-FPM handlers because the FPM worker will be responsible for reporting the transaction
+                return;
+            }
+
+            // The command's process reports its errors: `CommandFailed` only holds the command's output
+            if (self::runtime() === ConsoleRuntime::class) {
                 return;
             }
 
@@ -272,6 +287,24 @@ class BrefSubscriber extends BrefEventSubscriber
     }
 
     /**
+     * The class of the runtime, read like Bref's bootstrap does (`RUNTIME_CLASS` is the variable of Bref v2).
+     */
+    private static function runtime(): ?string
+    {
+        $runtime = $_SERVER['BREF_RUNTIME'] ?? $_SERVER['RUNTIME_CLASS'] ?? null;
+        if (!\is_string($runtime)) {
+            return null;
+        }
+
+        return match ($runtime) {
+            'function' => FunctionRuntime::class,
+            'fpm' => FpmRuntime::class,
+            'console' => ConsoleRuntime::class,
+            default => $runtime,
+        };
+    }
+
+    /**
      * Laravel queues and Octane, when the Sentry SDK for Laravel is installed.
      */
     private function frameworkCreatesTheTransaction(callable|Handler|RequestHandlerInterface $handler): bool
@@ -311,7 +344,7 @@ class BrefSubscriber extends BrefEventSubscriber
         if (LaravelBridge::isInstalled()) {
             $laravel = LaravelBridge::bootLaravel();
         } else {
-            SymfonyBridge::bootSymfony();
+            FrameworkHub::load();
         }
 
         $hint = self::unhandledErrorHint($error);

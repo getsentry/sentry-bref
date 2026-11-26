@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Sentry\Bref\Test\Bref;
 
 use Bref\Bref;
+use Bref\ConsoleRuntime\CommandFailed;
+use Bref\ConsoleRuntime\Main as ConsoleRuntime;
 use Bref\Context\Context;
 use Bref\Event\Handler;
 use Bref\FpmRuntime\FpmHandler;
@@ -394,6 +396,39 @@ class BrefSubscriberTest extends TestCase
         $this->assertSame([], $this->transport->events);
     }
 
+    public function testLeavesConsoleCommandsToTheirProcess(): void
+    {
+        $variables = [
+            ['BREF_RUNTIME', 'console'],
+            ['BREF_RUNTIME', ConsoleRuntime::class],
+            // Bref v2's variable, still read by Bref's bootstrap
+            ['RUNTIME_CLASS', ConsoleRuntime::class],
+        ];
+        foreach ($variables as [$variable, $runtime]) {
+            unset($_SERVER['BREF_RUNTIME'], $_SERVER['RUNTIME_CLASS']);
+            $_SERVER[$variable] = $runtime;
+            $subscriber = $this->createWarmSubscriber();
+            $handler = $this->createHandler();
+
+            $subscriber->beforeInvoke($handler, 'app:fail', Context::fake());
+            $subscriber->afterInvoke($handler, 'app:fail', Context::fake(), null, new CommandFailed('Command output'));
+
+            $this->assertSame([], $this->transport->events, "$variable=$runtime");
+        }
+    }
+
+    public function testDoesNotBootTheApplicationInThePhpFpmRuntimeProcess(): void
+    {
+        SentrySdk::init();
+        $container = $this->createMock(ContainerInterface::class);
+        $container->expects($this->never())->method('has');
+        Bref::setContainer(static fn () => $container);
+        $_SERVER['BREF_RUNTIME'] = 'fpm';
+
+        // The application boots in the PHP-FPM workers, the runtime process only boots it to report an error
+        $this->createWarmSubscriber()->afterStartup();
+    }
+
     public function testReportsBrefErrorsOfFpmInvocations(): void
     {
         $_SERVER['LAMBDA_TASK_ROOT'] = __DIR__ . '/../Fixtures/laravel';
@@ -445,6 +480,36 @@ class BrefSubscriberTest extends TestCase
         $errors = $this->transport->errors();
         $this->assertCount(1, $errors);
         $this->assertSame('The PHP script timed out', $errors[0]->getExceptions()[0]->getValue());
+    }
+
+    public function testReportsInvocationsWithTheClientOfTheContainer(): void
+    {
+        // What Symfony does: the client is only bound when getting the hub from the container
+        $client = ClientBuilder::create([
+            'dsn' => 'https://public@example.com/1',
+            'traces_sample_rate' => 1.0,
+        ])->setTransport($this->transport)->getClient();
+        SentrySdk::init();
+        $container = $this->createMock(ContainerInterface::class);
+        $container->method('has')->with(HubInterface::class)->willReturn(true);
+        $container->method('get')->willReturnCallback(static function () use ($client) {
+            SentrySdk::getCurrentHub()->bindClient($client);
+
+            return SentrySdk::getCurrentHub();
+        });
+        Bref::setContainer(static fn () => $container);
+        $_SERVER['BREF_RUNTIME'] = 'function';
+        $subscriber = $this->createWarmSubscriber();
+        $subscriber->afterStartup();
+        $handler = $this->createHandler();
+
+        $subscriber->beforeInvoke($handler, [], Context::fake());
+        $subscriber->afterInvoke($handler, [], Context::fake(), null, new \RuntimeException('Invocation failed'));
+
+        $errors = $this->transport->errors();
+        $this->assertCount(1, $errors);
+        $this->assertSame('Invocation failed', $errors[0]->getExceptions()[0]->getValue());
+        $this->assertSame('internal_error', $this->singleTransaction()->getContexts()['trace']['status']);
     }
 
     public function testAFailureDuringStartupDoesNotBreakTheRuntime(): void
