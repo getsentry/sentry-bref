@@ -47,6 +47,7 @@
         "bref/laravel-bridge": "^3",
         "friendsofphp/php-cs-fixer": "^3.95",
         "laravel/framework": "^12 | ^13",
+        "league/flysystem-aws-s3-v3": "^3",
         "phpstan/phpstan": "^2",
         "phpunit/phpunit": "^9",
         "sentry/sentry-laravel": "^4.28",

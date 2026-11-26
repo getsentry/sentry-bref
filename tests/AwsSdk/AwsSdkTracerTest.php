@@ -71,6 +71,22 @@ class AwsSdkTracerTest extends TestCase
         ], $spans[0]->getData());
     }
 
+    public function testTracesAClientOnlyOnce(): void
+    {
+        $hub = SentrySdk::init();
+        $transaction = new Transaction(new TransactionContext());
+        $transaction->initSpanRecorder();
+        $hub->setSpan($transaction);
+
+        $client = $this->createSqsClient(static fn () => new Result(['QueueUrls' => [self::QUEUE_URL]]));
+        // e.g. by the application and by this package
+        AwsSdkTracer::trace($client);
+        AwsSdkTracer::trace($client);
+        $client->listQueues();
+
+        $this->assertCount(1, $this->childSpans($transaction));
+    }
+
     public function testRemovesSpacesFromTheServiceInTheOperation(): void
     {
         $hub = SentrySdk::init();

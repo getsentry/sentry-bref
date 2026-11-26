@@ -4,9 +4,18 @@ declare(strict_types=1);
 
 namespace Sentry\Bref\Test\Laravel;
 
+use Aws\MockHandler;
+use Aws\Result;
+use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
+use Illuminate\Contracts\Filesystem\Factory as FilesystemFactory;
+use Illuminate\Contracts\Queue\Factory as QueueFactory;
 use Illuminate\Contracts\Queue\Job;
+use Illuminate\Filesystem\AwsS3V3Adapter;
+use Illuminate\Filesystem\FilesystemServiceProvider;
 use Illuminate\Foundation\Application;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\QueueServiceProvider;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Sentry\Bref\BrefSpans;
@@ -35,6 +44,7 @@ class BrefSentryServiceProviderTest extends TestCase
         if (file_exists(self::SPANS_FILE)) {
             unlink(self::SPANS_FILE);
         }
+        Container::setInstance(null);
         Facade::clearResolvedInstances();
         Facade::setFacadeApplication(null);
         SentrySdk::init();
@@ -57,5 +67,157 @@ class BrefSentryServiceProviderTest extends TestCase
 
         $ops = array_map(static fn (Span $span) => $span->getOp(), $transaction->getSpanRecorder()?->getSpans() ?? []);
         $this->assertContains('lambda.cold-start', $ops);
+    }
+
+    public function testTracesTheSqsClientOfQueues(): void
+    {
+        $app = $this->createApplication([
+            'queue.default' => 'sqs',
+            'queue.connections.sqs' => [
+                'driver' => 'sqs',
+                'prefix' => 'https://sqs.eu-west-1.amazonaws.com/123456789012',
+                'queue' => 'jobs',
+                'region' => 'eu-west-1',
+                'credentials' => false,
+                'handler' => new MockHandler([new Result(['MessageId' => 'message-id'])]),
+            ],
+        ]);
+        $transaction = $this->startTransaction();
+
+        $app->make(QueueFactory::class)->connection()->push('App\\Jobs\\TestJob');
+
+        $this->assertSame(['SQS.SendMessage'], $this->spanDescriptions($transaction));
+    }
+
+    public function testTracesTheSqsClientOfQueuesWithOctane(): void
+    {
+        $app = $this->createApplication([
+            'queue.default' => 'sqs',
+            'queue.connections.sqs' => [
+                'driver' => 'sqs',
+                'prefix' => 'https://sqs.eu-west-1.amazonaws.com/123456789012',
+                'queue' => 'jobs',
+                'region' => 'eu-west-1',
+                'credentials' => false,
+                'handler' => new MockHandler([new Result(['MessageId' => 'message-id'])]),
+            ],
+        ]);
+        // Octane handles each request with a copy of the application
+        $sandbox = clone $app;
+        Container::setInstance($sandbox);
+        $transaction = $this->startTransaction();
+
+        $sandbox->make(QueueFactory::class)->connection()->push('App\\Jobs\\TestJob');
+
+        $this->assertSame(['SQS.SendMessage'], $this->spanDescriptions($transaction));
+    }
+
+    public function testTracesTheSqsCallsOutsideOfDispatches(): void
+    {
+        $app = $this->createApplication([
+            'queue.default' => 'sqs',
+            'queue.connections.sqs' => [
+                'driver' => 'sqs',
+                'prefix' => 'https://sqs.eu-west-1.amazonaws.com/123456789012',
+                'queue' => 'jobs',
+                'region' => 'eu-west-1',
+                'credentials' => false,
+                'handler' => new MockHandler([new Result(['Attributes' => [
+                    'ApproximateNumberOfMessages' => '0',
+                    'ApproximateNumberOfMessagesDelayed' => '0',
+                    'ApproximateNumberOfMessagesNotVisible' => '0',
+                ]])]),
+            ],
+        ]);
+        $transaction = $this->startTransaction();
+
+        // e.g. the worker deleting or releasing the messages it processed
+        $app->make(QueueFactory::class)->connection()->size();
+
+        $this->assertSame(['SQS.GetQueueAttributes'], $this->spanDescriptions($transaction));
+    }
+
+    public function testTracesTheS3ClientOfDisks(): void
+    {
+        $app = $this->createApplication([
+            'filesystems.disks.s3' => [
+                'driver' => 's3',
+                'bucket' => 'my-bucket',
+                'region' => 'eu-west-1',
+                'credentials' => false,
+                'handler' => new MockHandler([new Result([])]),
+            ],
+        ]);
+        $transaction = $this->startTransaction();
+
+        $app->make(FilesystemFactory::class)->disk('s3')->put('file.txt', 'content');
+
+        $this->assertSame(['S3.PutObject'], $this->spanDescriptions($transaction));
+    }
+
+    public function testDoesNotTraceTemporaryUrlsOfDisks(): void
+    {
+        $app = $this->createApplication([
+            'filesystems.disks.s3' => [
+                'driver' => 's3',
+                'bucket' => 'my-bucket',
+                'region' => 'eu-west-1',
+                'key' => 'key',
+                'secret' => 'secret',
+                'handler' => new MockHandler(),
+            ],
+        ]);
+        $transaction = $this->startTransaction();
+
+        // No call to AWS: the URL is signed locally
+        $disk = $app->make(FilesystemFactory::class)->disk('s3');
+        $this->assertInstanceOf(AwsS3V3Adapter::class, $disk);
+        $disk->temporaryUrl('file.txt', now()->addMinutes(10));
+
+        $this->assertSame([], $this->spanDescriptions($transaction));
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     */
+    private function createApplication(array $config): Application
+    {
+        $app = new Application();
+        Facade::setFacadeApplication($app);
+        $repository = new Repository();
+        foreach ($config as $key => $value) {
+            $repository->set($key, $value);
+        }
+        $app->instance('config', $repository);
+        $app->register(FilesystemServiceProvider::class);
+        $app->register(QueueServiceProvider::class);
+        $app->register(BrefSentryServiceProvider::class);
+        $app->boot();
+
+        return $app;
+    }
+
+    private function startTransaction(): Transaction
+    {
+        $transaction = new Transaction(new TransactionContext());
+        $transaction->initSpanRecorder();
+        SentrySdk::init()->setSpan($transaction);
+
+        return $transaction;
+    }
+
+    /**
+     * The spans Sentry receives: it drops the unfinished ones.
+     *
+     * @return list<string|null>
+     */
+    private function spanDescriptions(Transaction $transaction): array
+    {
+        $spans = array_filter(
+            $transaction->getSpanRecorder()?->getSpans() ?? [],
+            static fn (Span $span) => $span !== $transaction && $span->getEndTimestamp() !== null,
+        );
+
+        return array_values(array_map(static fn (Span $span) => $span->getDescription(), $spans));
     }
 }
